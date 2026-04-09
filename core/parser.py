@@ -1,8 +1,3 @@
-# core/parser.py — Result validation, de-duplication, and export.
-# 
-# Pydantic v2 models validate every JSON line emitted by the Bash bridge.
-# Unique findings are maintained in an in-memory set (O(1) URL de-dup).
-
 from __future__ import annotations
 
 import csv
@@ -19,9 +14,6 @@ from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Severity ordering
-# ---------------------------------------------------------------------------
 
 class Severity(str, Enum):
     CRITICAL = "critical"
@@ -41,13 +33,7 @@ _SEVERITY_RANK: dict[Severity, int] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Pydantic finding model
-# ---------------------------------------------------------------------------
-
 class Finding(BaseModel):
-    # Represents a single vulnerability finding from Nuclei/engine output.
-
 
     template_id: str = Field(..., alias="template-id")
     name: str
@@ -80,10 +66,6 @@ class Finding(BaseModel):
         return d
 
 
-# ---------------------------------------------------------------------------
-# Nuclei JSON → Finding adapter
-# ---------------------------------------------------------------------------
-
 def _nuclei_line_to_finding(raw: dict) -> Finding | None:
     # Map a raw Nuclei JSON dict to a Finding model.
 
@@ -112,35 +94,16 @@ def _nuclei_line_to_finding(raw: dict) -> Finding | None:
             }
         )
     except Exception as exc:
-        logger.debug("Could not parse finding: %s — %s", raw, exc)
+        logger.debug("Could not parse finding: %s - %s", raw, exc)
         return None
 
 
-# ---------------------------------------------------------------------------
-# ResultParser
-# ---------------------------------------------------------------------------
-
 class ResultParser:
-    # Consumes a stream of raw JSON lines, validates them into Finding objects,
-    # and maintains a de-duplicated result set.
-    # 
-    # Usage::
-    # 
-    #     parser = ResultParser(severity_filter=["critical", "high"])
-    #     async for line in executor.run():
-    #         finding = parser.ingest(line)
-    #         if finding:
-    #             update_ui(finding)
-    # 
-    #     parser.export_jsonl(Path("reports/results.jsonl"))
-
-
     def __init__(self, severity_filter: list[str] | None = None) -> None:
         self._severity_filter: set[str] = set(severity_filter or [s.value for s in Severity])
         self._findings: list[Finding] = []
         self._seen_urls: set[str] = set()   # O(1) de-duplication key space
 
-    # ------------------------------------------------------------------
 
     def ingest(self, line: str) -> Finding | None:
         # Parse one JSON line. Returns a new Finding if valid and not a duplicate,
@@ -165,10 +128,9 @@ class ResultParser:
 
         self._seen_urls.add(dedup_key)
         self._findings.append(finding)
-        logger.info("[Parser] +%s %s → %s", finding.severity.value.upper(), finding.name, finding.url)
+        logger.info("[Parser] +%s %s -> %s", finding.severity.value.upper(), finding.name, finding.url)
         return finding
 
-    # ------------------------------------------------------------------
 
     def sorted_findings(self) -> list[Finding]:
     # Return findings sorted by severity (critical first).
@@ -185,12 +147,7 @@ class ResultParser:
             counts[f.severity.value] = counts.get(f.severity.value, 0) + 1
         return counts
 
-    # ------------------------------------------------------------------
-    # Export methods (atomic write-to-temp-and-rename)
-    # ------------------------------------------------------------------
-
     def export_jsonl(self, path: Path) -> Path:
-    # Write all findings as newline-delimited JSON (atomic).
 
         return self._atomic_write(
             path,
@@ -221,21 +178,11 @@ class ResultParser:
         except Exception:
             tmp.unlink(missing_ok=True)
             raise
-        logger.info("[Parser] Exported → %s", path)
+        logger.info("[Parser] Exported -> %s", path)
         return path
-
-    # ------------------------------------------------------------------
-    # Large-file reading with mmap
-    # ------------------------------------------------------------------
 
     @classmethod
     def from_file(cls, path: Path, severity_filter: list[str] | None = None) -> "ResultParser":
-        # Reconstruct a ResultParser from a previously exported JSONL file.
-        # Uses mmap for memory efficiency on large files.
-        # 
-        # Supports two formats:
-        #   1. Blue Whale-exported dicts (Python key names, e.g. template_id, url)
-        #   2. Raw Nuclei JSON dicts (aliased key names, e.g. template-id, host)
 
         parser = cls(severity_filter=severity_filter)
         with open(path, "rb") as fh:
@@ -275,7 +222,6 @@ class ResultParser:
                     except Exception:
                         pass
 
-                # Fallback: treat as raw Nuclei JSON
                 parser.ingest(decoded)
             mm.close()
         return parser

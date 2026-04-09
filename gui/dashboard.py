@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMenuBar,
     QPlainTextEdit,
+    QProgressBar,
     QSizePolicy,
     QSplitter,
     QStatusBar,
@@ -154,6 +155,14 @@ class Dashboard(QMainWindow):
         sb.setStyleSheet(f"color: {PALETTE['muted']}; font-size: 11px;")
         self._status_label = QLabel("Ready.")
         sb.addWidget(self._status_label)
+        
+        self._spinner = QProgressBar()
+        self._spinner.setRange(0, 0)
+        self._spinner.setFixedSize(100, 12)
+        self._spinner.setTextVisible(False)
+        self._spinner.hide()
+        sb.addPermanentWidget(self._spinner)
+
         self.setStatusBar(sb)
 
     def _build_menu(self) -> None:
@@ -192,11 +201,11 @@ class Dashboard(QMainWindow):
         header = header if header else None
 
         rps = self._ctrl.rps_spinner.value()
-        self._clear_results()
         self._ctrl.start_btn.setEnabled(False)
         self._ctrl.stop_btn.setEnabled(True)
-        self._status_label.setText(f"Scanning {target}…")
-        self._log_msg(f" Scan started → {target}  (RPS={rps})")
+        self._status_label.setText(f"Scanning {target}...")
+        self._spinner.show()
+        self._log_msg(f" Scan started -> {target}  (RPS={rps})")
 
         self._parser = ResultParser()
         self._executor = ScanExecutor(target=target, header=header, rps=rps)
@@ -242,9 +251,10 @@ class Dashboard(QMainWindow):
     def _on_scan_finished(self) -> None:
         self._ctrl.start_btn.setEnabled(True)
         self._ctrl.stop_btn.setEnabled(False)
+        self._spinner.hide()
         total = sum(c.count() for c in self._stat_cards.values()) if self._parser else 0
         self._status_label.setText(
-            f"Scan complete — {len(self._parser.sorted_findings()) if self._parser else 0} findings."
+            f"Scan complete - {len(self._parser.sorted_findings()) if self._parser else 0} findings."
         )
         self._log_msg("DONE  Scan finished.")
 
@@ -294,7 +304,7 @@ class Dashboard(QMainWindow):
             )
             reporter.load_from_parser(self._parser)
             path = reporter.export_html(Path(out).parent)
-            self._log_msg(f"  HTML report saved → {path}")
+            self._log_msg(f"  HTML report saved -> {path}")
 
     def _export_jsonl(self) -> None:
         if not self._parser or not self._parser.sorted_findings():
@@ -305,7 +315,7 @@ class Dashboard(QMainWindow):
         )
         if out:
             path = self._parser.export_jsonl(Path(out))
-            self._log_msg(f"  JSONL export saved → {path}")
+            self._log_msg(f"  JSONL export saved -> {path}")
 
     def _export_pdf(self) -> None:
         if not self._parser or not self._parser.sorted_findings():
@@ -322,7 +332,7 @@ class Dashboard(QMainWindow):
             reporter.load_from_parser(self._parser)
             path = reporter.export_pdf(Path(out).parent)
             if path:
-                self._log_msg(f"  PDF report saved → {path}")
+                self._log_msg(f"  PDF report saved -> {path}")
             else:
                 self._log_msg("  PDF generation failed (WeasyPrint missing?).")
 

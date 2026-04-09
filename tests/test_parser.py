@@ -1,4 +1,4 @@
-# tests/test_parser.py — Unit tests for core/parser.py.
+# tests/test_parser.py - Unit tests for core/parser.py.
 # 
 # Tests run without any external binaries; they only exercise the Python
 # validation, de-duplication, and export logic.

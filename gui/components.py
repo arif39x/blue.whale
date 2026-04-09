@@ -14,9 +14,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-# ---------------------------------------------------------------------------
-# Colour palette (matches reporter HTML theme)
-# ---------------------------------------------------------------------------
 PALETTE = {
     "bg": "#0d1117",
     "surface": "#161b22",
@@ -44,13 +41,8 @@ def severity_colour(sev: str) -> str:
     return SEV_COLOURS.get(sev.lower(), PALETTE["muted"])
 
 
-# ---------------------------------------------------------------------------
-# SeverityBadge
-# ---------------------------------------------------------------------------
-
 
 class SeverityBadge(QLabel):
-    # A styled pill-shaped label showing a severity level.
 
     def __init__(self, severity: str, parent: QWidget | None = None) -> None:
         super().__init__(severity.upper(), parent)
@@ -63,9 +55,6 @@ class SeverityBadge(QLabel):
         )
 
 
-# ---------------------------------------------------------------------------
-# StatCard
-# ---------------------------------------------------------------------------
 
 
 class StatCard(QFrame):
@@ -107,9 +96,6 @@ class StatCard(QFrame):
         return int(self._count_label.text())
 
 
-# ---------------------------------------------------------------------------
-# ScanControl toolbar
-# ---------------------------------------------------------------------------
 
 
 class ScanControl(QWidget):

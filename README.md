@@ -1,5 +1,7 @@
 # Blue Whale
 
+![Blue Whale Logo](assets/Logo.png)
+
 > Blue Whale is a Web Vulnerability Scanning Tool...
 
 ---
@@ -8,8 +10,8 @@
 
 ### System
 
-- Python ≥ 3.11
-- Go ≥ 1.21
+- Python >= 3.11
+- Go >= 1.21
 - `jq`, `bash`
 
 ### Python dependencies
@@ -24,7 +26,7 @@ pip install -r requirements.txt
 cd engine && go build -o ../bin/whale-engine .
 ```
 
-Or run the bootstrap script on first launch — it will detect missing binaries and compile automatically.
+Or run the bootstrap script on first launch - it will detect missing binaries and compile automatically.
 
 ---
 
@@ -42,7 +44,7 @@ python main.py
 # General help
 python main.py --help
 
-# 1. Bootstrap (Initialize dependencies and build engine)
+# 1. Bootstrap 
 python main.py bootstrap
 
 # 2. Basic Scan
@@ -68,7 +70,7 @@ python main.py paths
 
 ## Configuration
 
-All runtime parameters  in `config/settings.yaml` — Copy and edit before first run:
+All runtime parameters  in `config/settings.yaml` - Copy and edit before first run:
 
 ```bash
 cp config/settings.yaml.example config/settings.yaml
@@ -77,15 +79,3 @@ cp config/settings.yaml.example config/settings.yaml
 
 ---
 
-## Data Flow
-
-```
-main.py  →  sh/pipe.sh  →  Katana (recon) -----|
-                                               ├─ jq strip  →  Nuclei (vuln scan)
-                                               │
-                                        Python parser (Pydantic)
-                                               │
-                                    GUI table / CLI colour output
-                                               │
-                                        core/reporter.py  →  PDF / HTML
-```

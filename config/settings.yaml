@@ -1,57 +1,58 @@
 project:
   name: whale
-  version: "1.0.0"
+  version: "2.0.0"
 
 paths:
   bin_dir: "bin"
   sh_dir: "sh"
   data_dir: "data"
   tmp_dir: "data/tmp"
-  wordlists: "data/wordlists"
   user_agents: "data/user_agents.txt"
 
-binaries:
-  katana: "katana"       # name or absolute path; overridden by bootstrap if local
-  nuclei: "nuclei"
-  ffuf: "ffuf"
-  jq: "jq"
-  go: "go"
+engine:
+  workers: 10               # goroutine worker pool size for the crawler
+  max_depth: 3              # maximum crawl depth from seed URL
+  ua_rotation: true         # rotate User-Agent per request (uses data/user_agents.txt)
+  timeout_seconds: 30       # per-request HTTP timeout inside the Go engine
 
 scan:
-  default_rps: 10             # requests-per-second sent to engines
-  timeout_seconds: 300        # hard wall-clock timeout per scan job
-  max_depth: 3                # Katana crawl depth
-  concurrency: 25             # Nuclei template concurrency
-  retries: 2
-  severity_filter:            # only report these severities
+  default_rps: 10           # requests-per-second throttle
+  timeout_seconds: 300      # hard wall-clock timeout for the full scan job
+  max_depth: 3              # crawl depth (also passed to engine config)
+  severity_filter:          # only report these severity levels
     - critical
     - high
     - medium
     - low
     - info
-  exclude_tags:
-    - dos
-    - fuzz
+
+fuzzer:
+  payload_categories:       # corpus categories to fuzz during scan
+    - sqli
+    - xss
+    - ssti
+    - ssrf
+    - xxe
+    - idor
+  transforms:               # default transform ordering (WAF-specific chains take precedence)
+    - url_encode
+    - double_url_encode
+    - unicode_escape
+    - case_shuffle
+    - comment_inject
+    - null_byte
 
 stealth:
-  cooldown_threshold: 5       # consecutive 403/429 before cooldown triggers
-  cooldown_seconds: 30        # seconds to pause when cooldown fires
+  cooldown_threshold: 5     # consecutive 403/429 before cooldown triggers
+  cooldown_seconds: 30      # seconds to pause when cooldown fires
   rotate_user_agents: true
-
-resources:
-  ulimit_nofile: 65535        # file descriptor cap set by sh/pipe.sh
-
-bootstrap:
-  nuclei_repo: "https://github.com/projectdiscovery/nuclei/releases/latest"
-  katana_repo: "https://github.com/projectdiscovery/katana/releases/latest"
-  ffuf_repo: "https://github.com/ffuf/ffuf/releases/latest"
 
 reporting:
   formats:
     - html
     - json
   output_dir: "reports"
-  pdf_enabled: false          # requires weasyprint; toggled on if available
+  pdf_enabled: false        # requires weasyprint; toggled on if available
 
 logging:
   level: "INFO"

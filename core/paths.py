@@ -33,7 +33,7 @@ def require(path: Path) -> Path:
     if not path.exists():
         raise FileNotFoundError(
             f"[Blue Whale] Required path not found: {path}\n"
-            f"  → Ensure you have run 'python main.py bootstrap' first, "
+            f"  -> Ensure you have run 'python main.py bootstrap' first, "
             f"or check {SETTINGS_FILE} for misconfiguration."
         )
     return path

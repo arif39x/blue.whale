@@ -21,6 +21,7 @@ from core.paths import (
 )
 from core.reporter import Reporter
 
+
 def _setup_logging(verbose: bool) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
@@ -31,53 +32,75 @@ def _setup_logging(verbose: bool) -> None:
 
 
 _COLOURS = {
-    "critical": "\033[91m",  # bright red
-    "high":     "\033[93m",  # bright yellow
-    "medium":   "\033[33m",  # yellow
-    "low":      "\033[32m",  # green
-    "info":     "\033[36m",  # cyan
-    "reset":    "\033[0m",
+    "critical": "\033[91m",
+    "high": "\033[93m",
+    "medium": "\033[33m",
+    "low": "\033[32m",
+    "info": "\033[36m",
+    "reset": "\033[0m",
 }
 
 
-def _colourise(sev: str, text: str) -> str:
-    c = _COLOURS.get(sev.lower(), "")
-    r = _COLOURS["reset"]
-    return f"{c}{text}{r}"
+def _c(sev: str, text: str) -> str:
+    return f"{_COLOURS.get(sev.lower(), '')}{text}{_COLOURS['reset']}"
 
 
 def _print_finding(f) -> None:
     sev = f.severity.value
+    click.echo(f"  {_c(sev, f'[{sev.upper():8s}]')}  {f.name:<40s}  {f.url}")
+
+
+def _print_node(msg: dict) -> None:
+    url = msg.get("url", "")
+    params = msg.get("params", [])
+    score = msg.get("score", 0.0)
+    depth = msg.get("depth", 0)
+    param_str = f"  params=[{', '.join(params)}]" if params else ""
+    click.echo(f"  \033[90m[NODE d={depth} score={score:.1f}]\033[0m  {url}{param_str}")
+
+
+def _print_status(msg: dict) -> None:
+    phase = msg.get("phase", "")
+    progress = msg.get("progress", 0)
     click.echo(
-        f"  {_colourise(sev, f'[{sev.upper():8s}]')}  "
-        f"{f.name:<40s}  {f.url}"
+        f"  \033[36m[{phase.upper():12s}]\033[0m  {progress}% complete", nl=False
     )
+    click.echo("\r", nl=False)
 
 
 def _print_summary(parser: ResultParser) -> None:
     stats = parser.stats
     click.echo("\n" + "─" * 60)
-    click.echo("  Summary")
+    click.echo("  Findings Summary")
     click.echo("─" * 60)
+    any_found = False
     for sev in ("critical", "high", "medium", "low", "info"):
         count = stats.get(sev, 0)
         if count:
-            click.echo(f"  {_colourise(sev, f'{sev.upper():10s}')}  {count}")
+            click.echo(f"  {_c(sev, f'{sev.upper():10s}')}  {count}")
+            any_found = True
+    if not any_found:
+        click.echo("  No findings.")
     click.echo("─" * 60)
 
 
-
 @click.group()
-@click.version_option("1.0.0", prog_name="whale")
+@click.version_option("2.0.0", prog_name="whale")
 def cli() -> None:
     pass
 
 
-
 @cli.command("scan")
 @click.option("--target", "-t", required=True, help="Target URL to scan.")
-@click.option("--header", "-H", default=None, help="Custom HTTP Header (e.g., Cookie: session=123)")
-@click.option("--rps", default=None, type=int, help="Requests per second (overrides config).")
+@click.option(
+    "--header",
+    "-H",
+    default=None,
+    help="Custom HTTP header (e.g., Cookie: session=abc)",
+)
+@click.option(
+    "--rps", default=None, type=int, help="Requests per second (overrides config)."
+)
 @click.option("--timeout", default=None, type=int, help="Hard timeout in seconds.")
 @click.option(
     "--severity",
@@ -85,9 +108,30 @@ def cli() -> None:
     help="Comma-separated severity filter, e.g. critical,high",
 )
 @click.option("--output", "-o", default=None, help="Output directory for reports.")
-@click.option("--format", "fmt", default="html", type=click.Choice(["html", "json", "csv", "pdf"]), show_default=True)
-@click.option("--profile", default=None, help="Scan profile defined in settings.yaml (e.g. full, fast)")
-@click.option("--dry-run", is_flag=True, default=False, help="Print plan without running scan.")
+@click.option(
+    "--format",
+    "fmt",
+    default="html",
+    type=click.Choice(["html", "json", "csv", "pdf"]),
+    show_default=True,
+)
+@click.option(
+    "--profile",
+    default=None,
+    help="Scan profile from settings.yaml (e.g. full, fast, stealth)",
+)
+@click.option(
+    "--show-nodes",
+    is_flag=True,
+    default=False,
+    help="Print discovered endpoint nodes live.",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Print plan without running the scan.",
+)
 @click.option("--verbose", "-v", is_flag=True, default=False)
 def cmd_scan(
     target: str,
@@ -98,6 +142,7 @@ def cmd_scan(
     output: str | None,
     fmt: str,
     profile: str | None,
+    show_nodes: bool,
     dry_run: bool,
     verbose: bool,
 ) -> None:
@@ -105,19 +150,21 @@ def cmd_scan(
     _setup_logging(verbose)
     cfg = yaml.safe_load(SETTINGS_FILE.read_text())
 
-    # Load profile if specified
-    prof_cfg = {}
+    # Load profile
+    prof_cfg: dict = {}
     if profile:
         if "profiles" in cfg and profile in cfg["profiles"]:
             prof_cfg = cfg["profiles"][profile]
-            click.echo(f"  Using profile: {profile}")
+            click.echo(f"  Profile: {profile}")
         else:
-            click.echo(f"  [ERROR] Profile '{profile}' not found in {SETTINGS_FILE}", err=True)
+            click.echo(
+                f"  [ERROR] Profile '{profile}' not found in {SETTINGS_FILE}", err=True
+            )
             sys.exit(1)
 
-    # Precedence: Explicit Flag > Profile > Default Config
+    # Explicit flag > profile > config default
     final_rps = rps or prof_cfg.get("rps") or cfg["scan"]["default_rps"]
-    
+
     if severity:
         sev_list = [s.strip() for s in severity.split(",")]
     elif "severity_filter" in prof_cfg:
@@ -127,9 +174,9 @@ def cmd_scan(
 
     out_dir = Path(output) if output else ensure_dir(REPORTS_DIR)
 
-    click.echo(f"\nBlue Whale Scan → {target}")
+    click.echo(f"\n  Blue Whale -> {target}")
     if dry_run:
-        click.echo("  [DRY RUN] No actual scanning will be performed.\n")
+        click.echo("  [DRY RUN] Engine will not be spawned.\n")
 
     executor = ScanExecutor(
         target=target,
@@ -141,11 +188,102 @@ def cmd_scan(
     )
     parser = ResultParser(severity_filter=sev_list)
 
+    node_count = 0
+
     async def _run() -> None:
-        async for line in executor.run():
-            finding = parser.ingest(line)
-            if finding:
-                _print_finding(finding)
+        nonlocal node_count
+
+        is_running = True
+
+        async def spinner_task() -> None:
+            chars = ["[=   ]", "[ =  ]", "[  = ]", "[   =]", "[  = ]", "[ =  ]"]
+            idx = 0
+            while is_running:
+                sys.stdout.write(f"\r  \033[36m{chars[idx]}\033[0m Scanning... ")
+                sys.stdout.flush()
+                idx = (idx + 1) % len(chars)
+                await asyncio.sleep(0.15)
+            # clear line
+            sys.stdout.write("\r\033[K")
+            sys.stdout.flush()
+
+        spin_task = None
+        if not show_nodes and not verbose:
+            spin_task = asyncio.create_task(spinner_task())
+
+        try:
+            async for msg in executor.run():
+                msg_type = msg.get("type", "")
+
+            if msg_type == "node":
+                node_count += 1
+                if show_nodes:
+                    _print_node(msg)
+
+            elif msg_type == "fuzz_result":
+                # Try to build a finding from this result for the parser
+                # fuzz_result is a low-level event; parser ingests it if it maps to a vuln
+                status = msg.get("status", 0)
+                reflect = msg.get("reflect", False)
+                timing = msg.get("timing_hit", False)
+                # Synthesise a minimal nuclei-compatible finding for reflection/timing
+                if reflect:
+                    if spin_task:
+                        sys.stdout.write("\r\033[K")
+                    synthetic = {
+                        "template-id": "xss-reflection",
+                        "info": {
+                            "name": "XSS Reflection Detected",
+                            "severity": "medium",
+                        },
+                        "host": target,
+                        "matched-at": msg.get("url", target),
+                        "status-code": status,
+                    }
+                    finding = parser.ingest(json.dumps(synthetic))
+                    if finding:
+                        _print_finding(finding)
+                if timing:
+                    if spin_task:
+                        sys.stdout.write("\r\033[K")
+                    synthetic = {
+                        "template-id": "time-based-sqli",
+                        "info": {
+                            "name": "Time-Based Injection (Timing Oracle)",
+                            "severity": "high",
+                        },
+                        "host": target,
+                        "matched-at": msg.get("url", target),
+                        "status-code": status,
+                    }
+                    finding = parser.ingest(json.dumps(synthetic))
+                    if finding:
+                        _print_finding(finding)
+
+            elif msg_type == "status":
+                if verbose:
+                    _print_status(msg)
+
+            elif msg_type == "scan_done":
+                total = msg.get("total_nodes", node_count)
+                click.echo(f"\n  Crawl complete - {total} endpoints discovered.")
+
+            elif msg_type == "error":
+                if spin_task:
+                    sys.stdout.write("\r\033[K")
+                click.echo(
+                    f"\n  \033[91m[ERROR]\033[0m {msg.get('message', '')}", err=True
+                )
+
+            elif msg_type == "dry_run":
+                click.echo(
+                    f"  DRY RUN: would scan {msg.get('target')} (job {msg.get('job_id')})"
+                )
+
+        finally:
+            is_running = False
+            if spin_task:
+                await spin_task
 
     asyncio.run(_run())
 
@@ -157,27 +295,35 @@ def cmd_scan(
 
         if fmt == "html":
             path = reporter.export_html(out_dir)
-            click.echo(f"\n    HTML report → {path}")
+            click.echo(f"\n  HTML report -> {path}")
         elif fmt == "json":
             path = parser.export_jsonl(out_dir / f"whale_{executor.job_id}.jsonl")
-            click.echo(f"\n    JSONL export → {path}")
+            click.echo(f"\n  JSONL export -> {path}")
         elif fmt == "csv":
             path = parser.export_csv(out_dir / f"whale_{executor.job_id}.csv")
-            click.echo(f"\n    CSV export → {path}")
+            click.echo(f"\n  CSV export -> {path}")
         elif fmt == "pdf":
             path = reporter.export_pdf(out_dir)
             if path:
-                click.echo(f"\n    PDF report → {path}")
+                click.echo(f"\n  PDF report -> {path}")
             else:
-                click.echo(f"\n    PDF generation failed.")
+                click.echo("\n  PDF generation failed (install weasyprint).")
 
 
 @cli.command("report")
 @click.argument("results_file", type=click.Path(exists=True, path_type=Path))
 @click.option("--target", default="unknown", help="Target URL label for the report.")
 @click.option("--output", "-o", default=None, help="Output directory for the report.")
-@click.option("--format", "fmt", default="html", type=click.Choice(["html", "pdf"]), show_default=True)
-@click.option("--severity", default=None, help="Filter severities from the JSONL input.")
+@click.option(
+    "--format",
+    "fmt",
+    default="html",
+    type=click.Choice(["html", "pdf"]),
+    show_default=True,
+)
+@click.option(
+    "--severity", default=None, help="Filter severities from the JSONL input."
+)
 def cmd_report(
     results_file: Path,
     target: str,
@@ -189,29 +335,27 @@ def cmd_report(
     sev_list = [s.strip() for s in severity.split(",")] if severity else None
     out_dir = Path(output) if output else ensure_dir(REPORTS_DIR)
 
-    click.echo(f"Generating {fmt.upper()} report from {results_file}…")
+    click.echo(f"  Generating {fmt.upper()} report from {results_file}...")
     parser = ResultParser.from_file(results_file, severity_filter=sev_list)
     reporter = Reporter(target=target, job_id=results_file.stem)
     reporter.load_from_parser(parser)
 
-    if fmt == "html":
-        path = reporter.export_html(out_dir)
-    elif fmt == "pdf":
-        path = reporter.export_pdf(out_dir)
-    else:
-        path = None
-
+    path = (
+        reporter.export_html(out_dir) if fmt == "html" else reporter.export_pdf(out_dir)
+    )
     if path:
-        click.echo(f" Report saved → {path}")
+        click.echo(f"  Report saved -> {path}")
     else:
-        click.echo(" Report generation failed .", err=True)
+        click.echo("  Report generation failed.", err=True)
         sys.exit(1)
 
 
-
 @cli.command("bootstrap")
-@click.option("--force", is_flag=True, default=False, help="Re-download even if binaries exist.")
+@click.option(
+    "--force", is_flag=True, default=False, help="Rebuild engine even if binary exists."
+)
 def cmd_bootstrap(force: bool) -> None:
+    # Build the Go engine and set up the Python environment.
     args = ["bash", str(BOOTSTRAP_SCRIPT)]
     if force:
         args.append("--force")
@@ -219,13 +363,15 @@ def cmd_bootstrap(force: bool) -> None:
     sys.exit(result.returncode)
 
 
-
 @cli.command("paths")
 def cmd_paths() -> None:
     # Print all resolved filesystem paths and their existence status.
-
     click.echo("\n  Blue Whale Path Resolution\n")
     for name, p in all_paths().items():
-        status = click.style("[OK]", fg="green") if p.exists() else click.style("[XX]", fg="red")
+        status = (
+            click.style("[OK]", fg="green")
+            if p.exists()
+            else click.style("[XX]", fg="red")
+        )
         click.echo(f"  {status}  {name:25s}  {p}")
     click.echo()

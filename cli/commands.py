@@ -85,7 +85,7 @@ def cli() -> None:
     help="Comma-separated severity filter, e.g. critical,high",
 )
 @click.option("--output", "-o", default=None, help="Output directory for reports.")
-@click.option("--format", "fmt", default="html", type=click.Choice(["html", "json", "csv"]), show_default=True)
+@click.option("--format", "fmt", default="html", type=click.Choice(["html", "json", "csv", "pdf"]), show_default=True)
 @click.option("--dry-run", is_flag=True, default=False, help="Print plan without running scan.")
 @click.option("--verbose", "-v", is_flag=True, default=False)
 def cmd_scan(
@@ -105,7 +105,7 @@ def cmd_scan(
     sev_list = [s.strip() for s in severity.split(",")] if severity else cfg["scan"]["severity_filter"]
     out_dir = Path(output) if output else ensure_dir(REPORTS_DIR)
 
-    click.echo(f"\n🔍  Moriarty Scan → {target}")
+    click.echo(f"\nMoriarty Scan → {target}")
     if dry_run:
         click.echo("  [DRY RUN] No actual scanning will be performed.\n")
 
@@ -141,6 +141,12 @@ def cmd_scan(
         elif fmt == "csv":
             path = parser.export_csv(out_dir / f"moriarty_{executor.job_id}.csv")
             click.echo(f"\n    CSV export → {path}")
+        elif fmt == "pdf":
+            path = reporter.export_pdf(out_dir)
+            if path:
+                click.echo(f"\n    PDF report → {path}")
+            else:
+                click.echo(f"\n    PDF generation failed.")
 
 
 @cli.command("report")
@@ -198,6 +204,6 @@ def cmd_paths() -> None:
 
     click.echo("\n  Moriarty Path Resolution\n")
     for name, p in all_paths().items():
-        status = click.style("✓", fg="green") if p.exists() else click.style("✗", fg="red")
+        status = click.style("[OK]", fg="green") if p.exists() else click.style("[XX]", fg="red")
         click.echo(f"  {status}  {name:25s}  {p}")
     click.echo()

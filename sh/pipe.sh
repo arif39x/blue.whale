@@ -131,6 +131,6 @@ JQ_FILTER='
   --silent \
   --no-color \
   2>>"${WORKDIR}/nuclei_stderr.log" \
-| "${JQ_BIN}" --unbuffered -c "${JQ_FILTER}" 2>/dev/null
+| "${JQ_BIN}" --unbuffered -c "${JQ_FILTER}" 2>/dev/null || true
 
 log "Stage 2 complete."

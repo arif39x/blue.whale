@@ -1,8 +1,3 @@
-# core/paths.py — Absolute path resolution for all Moriarty resources.
-# 
-# This is the single source of truth for directory layout. Import from here;
-# never hardcode paths anywhere else.
-
 from __future__ import annotations
 
 import os
@@ -73,5 +68,5 @@ def all_paths() -> dict[str, Path]:
 
 if __name__ == "__main__":
     for name, p in all_paths().items():
-        status = "✓" if p.exists() else "✗"
+        status = "[OK]" if p.exists() else "[MISSING]"
         print(f"  {status}  {name:20s}  {p}")

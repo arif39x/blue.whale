@@ -174,6 +174,9 @@ class Dashboard(QMainWindow):
         export_json = file_menu.addAction("Export JSONL")
         export_json.triggered.connect(self._export_jsonl)
 
+        export_pdf = file_menu.addAction("Export PDF Report")
+        export_pdf.triggered.connect(self._export_pdf)
+
         file_menu.addSeparator()
         quit_act = file_menu.addAction("Quit")
         quit_act.triggered.connect(QApplication.quit)
@@ -245,7 +248,7 @@ class Dashboard(QMainWindow):
         self._status_label.setText(
             f"Scan complete — {len(self._parser.sorted_findings()) if self._parser else 0} findings."
         )
-        self._log_msg("✓  Scan finished.")
+        self._log_msg("DONE  Scan finished.")
 
     # ------------------------------------------------------------------
     # Table helpers
@@ -308,6 +311,25 @@ class Dashboard(QMainWindow):
         if out:
             path = self._parser.export_jsonl(Path(out))
             self._log_msg(f"  JSONL export saved → {path}")
+
+    def _export_pdf(self) -> None:
+        if not self._parser or not self._parser.sorted_findings():
+            self._log_msg("No findings to export.")
+            return
+        out, _ = QFileDialog.getSaveFileName(
+            self, "Save PDF Report", "", "PDF Files (*.pdf)"
+        )
+        if out:
+            reporter = Reporter(
+                target=self._ctrl.target_input.text(),
+                job_id=self._executor.job_id if self._executor else "export",
+            )
+            reporter.load_from_parser(self._parser)
+            path = reporter.export_pdf(Path(out).parent)
+            if path:
+                self._log_msg(f"  PDF report saved → {path}")
+            else:
+                self._log_msg("  PDF generation failed (WeasyPrint missing?).")
 
     # ------------------------------------------------------------------
     # Helpers

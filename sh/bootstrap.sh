@@ -90,7 +90,7 @@ _download_github_release() {
 
   install -m755 "$extracted" "${BIN_DIR}/${tool}"
   rm -rf "$tmp_dir"
-  log "✓ ${tool} installed → ${BIN_DIR}/${tool}"
+  log "SUCCESS: ${tool} installed → ${BIN_DIR}/${tool}"
 }
 
 echo ""
@@ -116,7 +116,7 @@ if [[ "$FORCE" == "false" && -x "$ENGINE_BIN" ]]; then
 elif command -v go &>/dev/null; then
   log "Building moriarty-engine with Go…"
   (cd "$ENGINE_SRC" && go build -o "${ENGINE_BIN}" .)
-  log "✓ moriarty-engine built → ${ENGINE_BIN}"
+  log "SUCCESS: moriarty-engine built → ${ENGINE_BIN}"
 else
   log "WARNING: Go not found. moriarty-engine will not be available."
 fi
@@ -124,7 +124,7 @@ fi
 # jq check
 #
 if command -v jq &>/dev/null; then
-  log "✓ jq available: $(jq --version)"
+  log "SUCCESS: jq available: $(jq --version)"
 else
   log "WARNING: jq not found. Install via: sudo apt install jq"
 fi

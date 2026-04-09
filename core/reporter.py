@@ -1,9 +1,3 @@
-# core/reporter.py — HTML and optional PDF report generation.
-# 
-# Given a ResultParser (or a list of Findings), renders an executive-summary
-# HTML report with a technical breakdown table. PDF conversion uses WeasyPrint
-# if available (graceful skip otherwise).
-
 from __future__ import annotations
 
 import importlib
@@ -71,7 +65,7 @@ _HTML_TEMPLATE = """\
   </style>
 </head>
 <body>
-  <h1>🔍 Moriarty Security Report</h1>
+  <h1>Moriarty Security Report</h1>
   <p class="meta">Target: <strong>{target}</strong> &nbsp;|&nbsp; Generated: {generated_at} &nbsp;|&nbsp; Job: {job_id}</p>
 
   <h2>Executive Summary</h2>
@@ -123,20 +117,10 @@ def _html_escape(s: str) -> str:
             .replace('"', "&quot;"))
 
 
-# ---------------------------------------------------------------------------
-# Reporter class
-# ---------------------------------------------------------------------------
+
 
 class Reporter:
-    # Converts a list of Finding objects into HTML (and optionally PDF) reports.
-    # 
-    # Usage::
-    # 
-    #     reporter = Reporter(target="https://example.com", job_id="abc123")
-    #     reporter.load_from_parser(parser)
-    #     html_path = reporter.export_html(Path("reports/"))
-    #     pdf_path  = reporter.export_pdf(Path("reports/"))  # no-op if weasyprint missing
-
+    
 
     def __init__(self, target: str, job_id: str = "unknown") -> None:
         self.target = target
@@ -150,7 +134,7 @@ class Reporter:
         from core.parser import Severity, _SEVERITY_RANK
         self._findings = sorted(findings, key=lambda f: _SEVERITY_RANK.get(f.severity, 99))
 
-    # ------------------------------------------------------------------
+
 
     def export_html(self, output_dir: Path) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)

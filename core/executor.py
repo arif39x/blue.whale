@@ -11,7 +11,7 @@ from typing import AsyncIterator
 
 import yaml
 
-from core.paths import PIPE_SCRIPT, SETTINGS_FILE, TMP_DIR, ensure_dir
+from core.paths import PIPE_SCRIPT, SETTINGS_FILE, TMP_DIR, ensure_dir, DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -42,18 +42,12 @@ class WAFDetector:
 
 
 class ScanExecutor:
-    # Manages the lifecycle of a single scan job.
-    # 
-    # Usage::
-    # 
-    #     executor = ScanExecutor(target="https://example.com", rps=10)
-    #     async for line in executor.run():
-    #         process(line)
 
 
     def __init__(
         self,
         target: str,
+        header: str | None = None,
         rps: int | None = None,
         timeout: int | None = None,
         severity: list[str] | None = None,
@@ -61,6 +55,7 @@ class ScanExecutor:
     ) -> None:
         cfg = _load_settings()
         self.target = target
+        self.header = header
         self.rps = rps or cfg["scan"]["default_rps"]
         self.timeout = timeout or cfg["scan"]["timeout_seconds"]
         self.severity = severity or cfg["scan"]["severity_filter"]
@@ -81,13 +76,9 @@ class ScanExecutor:
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     async def run(self) -> AsyncIterator[str]:
         # Async generator that yields raw JSON lines from the scan pipeline.
-        # 
         # Lines that contain HTTP status codes will be checked for WAF patterns;
         # cool-down sleeps are injected transparently.
 
@@ -99,6 +90,7 @@ class ScanExecutor:
             yield f'{{"type":"dry_run","job_id":"{self.job_id}","target":"{self.target}"}}'
             return
 
+        ua = self._get_random_ua()
         cmd = [
             "bash",
             str(PIPE_SCRIPT),
@@ -108,7 +100,10 @@ class ScanExecutor:
             "--severity", ",".join(self.severity),
             "--job-id", self.job_id,
             "--workdir", str(job_dir),
+            "--ua", ua,
         ]
+        if self.header:
+            cmd.extend(["--header", self.header])
         logger.debug("[%s] Spawning: %s", self.job_id, " ".join(cmd))
 
         try:
@@ -155,9 +150,6 @@ class ScanExecutor:
             except ProcessLookupError:
                 pass  # process already gone
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     async def _read_stdout(self) -> AsyncIterator[str]:
         # Read stdout line-by-line with timeout guard and WAF detection.
@@ -172,7 +164,7 @@ class ScanExecutor:
                     if not line:
                         continue
 
-                    # Naive WAF detection: look for status codes in JSON output
+                    # Naive WAF  look for status codes in JSON output
                     status_code = self._extract_status(line)
                     if status_code and self._waf.record_response(status_code):
                         logger.warning(
@@ -196,6 +188,20 @@ class ScanExecutor:
             return int(code) if code else None
         except (json.JSONDecodeError, ValueError, TypeError):
             return None
+
+    def _get_random_ua(self) -> str:
+        # Return a random user agent from data/user_agents.txt or a fallback.
+        ua_file = DATA_DIR / "user_agents.txt"
+        fallback = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        if ua_file.exists():
+            try:
+                agents = [line.strip() for line in ua_file.read_text().splitlines() if line.strip()]
+                if agents:
+                    import random
+                    return random.choice(agents)
+            except Exception:
+                pass
+        return fallback
 
     def _signal_handler(self, signum: int, frame) -> None:  # noqa: ANN001
         logger.info("Signal %s received — cancelling scan [%s]", signum, self.job_id)

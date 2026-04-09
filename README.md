@@ -1,6 +1,6 @@
-# Moriarty
+# Blue Whale
 
-> Moriarty is a Web Vuenability Scanning Tool...
+> Blue Whale is a Web Vulnerability Scanning Tool...
 
 ---
 
@@ -21,7 +21,7 @@ pip install -r requirements.txt
 ### Go
 
 ```bash
-cd engine && go build -o ../bin/moriarty-engine .
+cd engine && go build -o ../bin/whale-engine .
 ```
 
 Or run the bootstrap script on first launch — it will detect missing binaries and compile automatically.
@@ -39,28 +39,48 @@ python main.py
 ### CLI mode
 
 ```bash
+# General help
 python main.py --help
+
+# 1. Bootstrap (Initialize dependencies and build engine)
+python main.py bootstrap
+
+# 2. Basic Scan
+python main.py scan --target https://example.com
+
+# 3. Scan with Profile (full, fast, stealth)
 python main.py scan --target https://example.com --profile full
+
+# 4. Authenticated Scan (Custom Headers)
+python main.py scan --target https://example.com -H "Cookie: session=123"
+
+# 5. Export results (json, csv, pdf, html)
+python main.py scan --target https://example.com --format pdf --output ./reports
+
+# 6. Generate report from existing results
+python main.py report reports/whale_12345.jsonl --target https://example.com --format html
+
+# 7. Check project paths
+python main.py paths
 ```
 
 ---
 
 ## Configuration
 
-All runtime parameters live in `config/settings.yaml` — **no hardcoded values** anywhere in the codebase. Copy and edit before first run:
+All runtime parameters  in `config/settings.yaml` — Copy and edit before first run:
 
 ```bash
 cp config/settings.yaml.example config/settings.yaml
 ```
 
-Key settings: binary paths, RPS limits, timeouts, severity filters, User-Agent pool path.
 
 ---
 
 ## Data Flow
 
 ```
-main.py  →  sh/pipe.sh  →  Katana (recon) ---──┐
+main.py  →  sh/pipe.sh  →  Katana (recon) -----|
                                                ├─ jq strip  →  Nuclei (vuln scan)
                                                │
                                         Python parser (Pydantic)

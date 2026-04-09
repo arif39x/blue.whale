@@ -234,7 +234,7 @@ class ResultParser:
         # Uses mmap for memory efficiency on large files.
         # 
         # Supports two formats:
-        #   1. Moriarty-exported dicts (Python key names, e.g. template_id, url)
+        #   1. Blue Whale-exported dicts (Python key names, e.g. template_id, url)
         #   2. Raw Nuclei JSON dicts (aliased key names, e.g. template-id, host)
 
         parser = cls(severity_filter=severity_filter)

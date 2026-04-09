@@ -95,12 +95,17 @@ _download_github_release() {
 
 echo ""
 echo "############################################"
-echo "#  Moriarty Bootstrap — Dependency Check   #"
+echo "#           Blue Whale                     #"
 echo "############################################"
 echo ""
 
 _already_have nuclei || _download_github_release \
   "nuclei" "projectdiscovery" "nuclei_.*_${OS}_${ARCH}.zip"
+
+if command -v nuclei &>/dev/null; then
+  log "Updating nuclei templates..."
+  nuclei -ut -silent || warn "Nuclei template update failed"
+fi
 
 _already_have katana || _download_github_release \
   "katana" "projectdiscovery" "katana_.*_${OS}_${ARCH}.zip"
@@ -109,16 +114,16 @@ _already_have ffuf || _download_github_release \
   "ffuf" "ffuf" "ffuf_.*_${OS}_${ARCH}.tar.gz"
 
 ENGINE_SRC="${PROJECT_ROOT}/engine"
-ENGINE_BIN="${BIN_DIR}/moriarty-engine"
+ENGINE_BIN="${BIN_DIR}/whale-engine"
 
 if [[ "$FORCE" == "false" && -x "$ENGINE_BIN" ]]; then
-  log "moriarty-engine already built — skipping."
+  log "whale-engine already built — skipping."
 elif command -v go &>/dev/null; then
-  log "Building moriarty-engine with Go…"
+  log "Building whale-engine with Go…"
   (cd "$ENGINE_SRC" && go build -o "${ENGINE_BIN}" .)
-  log "SUCCESS: moriarty-engine built → ${ENGINE_BIN}"
+  log "SUCCESS: whale-engine built → ${ENGINE_BIN}"
 else
-  log "WARNING: Go not found. moriarty-engine will not be available."
+  log "WARNING: Go not found. whale-engine will not be available."
 fi
 
 # jq check

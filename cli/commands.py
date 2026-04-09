@@ -68,15 +68,15 @@ def _print_summary(parser: ResultParser) -> None:
 
 
 @click.group()
-@click.version_option("1.0.0", prog_name="moriarty")
+@click.version_option("1.0.0", prog_name="whale")
 def cli() -> None:
-    # Moriarty — Modular web vulnerability orchestrator.
     pass
 
 
 
 @cli.command("scan")
 @click.option("--target", "-t", required=True, help="Target URL to scan.")
+@click.option("--header", "-H", default=None, help="Custom HTTP Header (e.g., Cookie: session=123)")
 @click.option("--rps", default=None, type=int, help="Requests per second (overrides config).")
 @click.option("--timeout", default=None, type=int, help="Hard timeout in seconds.")
 @click.option(
@@ -86,15 +86,18 @@ def cli() -> None:
 )
 @click.option("--output", "-o", default=None, help="Output directory for reports.")
 @click.option("--format", "fmt", default="html", type=click.Choice(["html", "json", "csv", "pdf"]), show_default=True)
+@click.option("--profile", default=None, help="Scan profile defined in settings.yaml (e.g. full, fast)")
 @click.option("--dry-run", is_flag=True, default=False, help="Print plan without running scan.")
 @click.option("--verbose", "-v", is_flag=True, default=False)
 def cmd_scan(
     target: str,
+    header: str | None,
     rps: int | None,
     timeout: int | None,
     severity: str | None,
     output: str | None,
     fmt: str,
+    profile: str | None,
     dry_run: bool,
     verbose: bool,
 ) -> None:
@@ -102,16 +105,36 @@ def cmd_scan(
     _setup_logging(verbose)
     cfg = yaml.safe_load(SETTINGS_FILE.read_text())
 
-    sev_list = [s.strip() for s in severity.split(",")] if severity else cfg["scan"]["severity_filter"]
+    # Load profile if specified
+    prof_cfg = {}
+    if profile:
+        if "profiles" in cfg and profile in cfg["profiles"]:
+            prof_cfg = cfg["profiles"][profile]
+            click.echo(f"  Using profile: {profile}")
+        else:
+            click.echo(f"  [ERROR] Profile '{profile}' not found in {SETTINGS_FILE}", err=True)
+            sys.exit(1)
+
+    # Precedence: Explicit Flag > Profile > Default Config
+    final_rps = rps or prof_cfg.get("rps") or cfg["scan"]["default_rps"]
+    
+    if severity:
+        sev_list = [s.strip() for s in severity.split(",")]
+    elif "severity_filter" in prof_cfg:
+        sev_list = prof_cfg["severity_filter"]
+    else:
+        sev_list = cfg["scan"]["severity_filter"]
+
     out_dir = Path(output) if output else ensure_dir(REPORTS_DIR)
 
-    click.echo(f"\nMoriarty Scan → {target}")
+    click.echo(f"\nBlue Whale Scan → {target}")
     if dry_run:
         click.echo("  [DRY RUN] No actual scanning will be performed.\n")
 
     executor = ScanExecutor(
         target=target,
-        rps=rps,
+        header=header,
+        rps=final_rps,
         timeout=timeout,
         severity=sev_list,
         dry_run=dry_run,
@@ -136,10 +159,10 @@ def cmd_scan(
             path = reporter.export_html(out_dir)
             click.echo(f"\n    HTML report → {path}")
         elif fmt == "json":
-            path = parser.export_jsonl(out_dir / f"moriarty_{executor.job_id}.jsonl")
+            path = parser.export_jsonl(out_dir / f"whale_{executor.job_id}.jsonl")
             click.echo(f"\n    JSONL export → {path}")
         elif fmt == "csv":
-            path = parser.export_csv(out_dir / f"moriarty_{executor.job_id}.csv")
+            path = parser.export_csv(out_dir / f"whale_{executor.job_id}.csv")
             click.echo(f"\n    CSV export → {path}")
         elif fmt == "pdf":
             path = reporter.export_pdf(out_dir)
@@ -189,7 +212,6 @@ def cmd_report(
 @cli.command("bootstrap")
 @click.option("--force", is_flag=True, default=False, help="Re-download even if binaries exist.")
 def cmd_bootstrap(force: bool) -> None:
-    # Download and install required binaries (Nuclei, Katana, ffuf).
     args = ["bash", str(BOOTSTRAP_SCRIPT)]
     if force:
         args.append("--force")
@@ -202,7 +224,7 @@ def cmd_bootstrap(force: bool) -> None:
 def cmd_paths() -> None:
     # Print all resolved filesystem paths and their existence status.
 
-    click.echo("\n  Moriarty Path Resolution\n")
+    click.echo("\n  Blue Whale Path Resolution\n")
     for name, p in all_paths().items():
         status = click.style("[OK]", fg="green") if p.exists() else click.style("[XX]", fg="red")
         click.echo(f"  {status}  {name:25s}  {p}")

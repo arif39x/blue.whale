@@ -133,6 +133,18 @@ class ScanControl(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
 
+        # Header input
+        self.header_input = QLineEdit()
+        self.header_input.setPlaceholderText("Optional: Custom Header (e.g., Cookie: session=123)")
+        self.header_input.setStyleSheet(
+            f"background: {PALETTE['surface']}; color: {PALETTE['text']};"
+            f" border: 1px solid {PALETTE['border']}; border-radius: 6px;"
+            " padding: 6px 10px; font-size: 13px;"
+        )
+        self.header_input.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+
         # RPS spinner
         rps_label = QLabel("RPS")
         rps_label.setStyleSheet(f"color: {PALETTE['muted']}; font-size: 12px;")
@@ -166,6 +178,7 @@ class ScanControl(QWidget):
         )
 
         layout.addWidget(self.target_input)
+        layout.addWidget(self.header_input)
         layout.addWidget(rps_label)
         layout.addWidget(self.rps_spinner)
         layout.addWidget(self.start_btn)

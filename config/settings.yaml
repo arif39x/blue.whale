@@ -1,8 +1,5 @@
-# Moriarty Configuration
-# All tuneable parameters live here. No hardcoded values anywhere else.
-
 project:
-  name: moriarty
+  name: whale
   version: "1.0.0"
 
 paths:
@@ -57,5 +54,16 @@ reporting:
   pdf_enabled: false          # requires weasyprint; toggled on if available
 
 logging:
-  level: "INFO"               # DEBUG | INFO | WARNING | ERROR
-  file: "data/tmp/moriarty.log"
+  level: "INFO"
+  file: "data/tmp/whale.log"
+
+profiles:
+  full:
+    severity_filter: ["critical", "high", "medium", "low", "info"]
+    rps: 20
+  fast:
+    severity_filter: ["critical", "high"]
+    rps: 50
+  stealth:
+    severity_filter: ["critical", "high"]
+    rps: 2

@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-# Project root is two levels above this file (core/paths.py → core/ → project root)
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
 CONFIG_DIR: Path = PROJECT_ROOT / "config"
@@ -25,15 +24,15 @@ PIPE_SCRIPT: Path = SH_DIR / "pipe.sh"
 BOOTSTRAP_SCRIPT: Path = SH_DIR / "bootstrap.sh"
 
 # Compiled Go engine binary
-ENGINE_BINARY: Path = BIN_DIR / "moriarty-engine"
+ENGINE_BINARY: Path = BIN_DIR / "whale-engine"
 
 
 def require(path: Path) -> Path:
-    # Return *path* if it exists, else raise FileNotFoundError with a helpful message.
+    # Return *path* if it exists, else raise FileNotFoundError 
 
     if not path.exists():
         raise FileNotFoundError(
-            f"[Moriarty] Required path not found: {path}\n"
+            f"[Blue Whale] Required path not found: {path}\n"
             f"  → Ensure you have run 'python main.py bootstrap' first, "
             f"or check {SETTINGS_FILE} for misconfiguration."
         )

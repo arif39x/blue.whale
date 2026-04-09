@@ -24,7 +24,7 @@ logging.basicConfig(
     format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
     datefmt="%H:%M:%S",
 )
-logger = logging.getLogger("moriarty")
+logger = logging.getLogger("whale")
 
 
 def main() -> None:
@@ -35,10 +35,11 @@ def main() -> None:
         _launch_gui()
 
 
-_BANNER = """\033[31m
-░█▄█░█▀█░█▀▄░▀█▀░█▀█░█▀▄░▀█▀░█░█
-░█░█░█░█░█▀▄░░█░░█▀█░█▀▄░░█░░░█░
-░▀░▀░▀▀▀░▀░▀░▀▀▀░▀░▀░▀░▀░░▀░░░▀░
+_BANNER = r"""\033[36m
+  ___ _    _   _ ___  __      _____  _  _ ___ _    ___ 
+ | _ ) |  | | | | __| \ \    / / _ \| || | _ | |  | __|
+ | _ \ |__| |_| | _|   \ \/\/ /| _ \ |__| _ \ |__| _| 
+ |___/____|\___/|___|   \_/\_/ |_||_|_||_|_||______|___|
 \033[0m"""
 
 
@@ -69,16 +70,16 @@ def _launch_gui() -> None:
         sys.exit(1)
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Moriarty")
+    app.setApplicationName("Blue Whale")
     app.setApplicationVersion("1.0.0")
-    app.setOrganizationName("Moriarty")
+    app.setOrganizationName("Blue Whale")
 
     os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
 
     window = Dashboard()
     window.show()
 
-    logger.info("Moriarty GUI launched.")
+    logger.info("Blue Whale GUI launched.")
     sys.exit(app.exec())
 
 

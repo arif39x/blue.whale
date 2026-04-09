@@ -1,10 +1,10 @@
-// engine/main.go — Moriarty Go Engine Wrapper
+// engine/main.go — Blue Whale Go Engine Wrapper
 //
 // A thin CLI wrapper around projectdiscovery tools (Katana, Nuclei, ffuf).
 // This binary is called by sh/pipe.sh as a higher-level orchestration layer.
 // It exposes sub-commands so the Bash bridge can invoke each phase independently.
 //
-// Build: go build -o ../bin/moriarty-engine .
+// Build: go build -o ../bin/whale-engine .
 package main
 
 import (
@@ -37,7 +37,7 @@ func main() {
 	switch sub {
 	case "info":
 		info := EngineInfo{
-			Name:    "moriarty-engine",
+			Name:    "whale-engine",
 			Version: "1.0.0",
 			OS:      runtime.GOOS,
 			Arch:    runtime.GOARCH,
@@ -140,10 +140,10 @@ func checkDeps(tools []string) {
 
 func printUsage() {
 	fmt.Println(strings.TrimSpace(`
-Moriarty Engine — Go wrapper for security scanning tools.
+Blue Whale Engine — Go wrapper for security scanning tools.
 
 Usage:
-  moriarty-engine <sub-command> [args...]
+  whale-engine <sub-command> [args...]
 
 Sub-commands:
   info           Print engine metadata as JSON.
@@ -153,6 +153,6 @@ Sub-commands:
   ffuf   [args]  Run ffuf with the given arguments.
 
 Build:
-  cd engine && go build -o ../bin/moriarty-engine .
+  cd engine && go build -o ../bin/whale-engine .
 `))
 }

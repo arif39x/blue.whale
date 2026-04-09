@@ -49,11 +49,11 @@ class _Bridge(QObject):
 
 
 class Dashboard(QMainWindow):
-    # Moriarty GUI Dashboard.
+
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Moriarty")
+        self.setWindowTitle("Blue Whale")
         self.setMinimumSize(1100, 700)
         self._apply_dark_palette()
 
@@ -82,20 +82,20 @@ class Dashboard(QMainWindow):
         vbox.setSpacing(12)
 
         # ── Header ──
-        header = QLabel("  Moriarty")
+        header = QLabel("  Blue Whale")
         header.setStyleSheet(
             "font-size: 20px; font-weight: 700; color: #e6edf3;"
             " letter-spacing: 1px; border: none;"
         )
         vbox.addWidget(header)
 
-        # ── Scan Control ──
+        # Scan Control 
         self._ctrl = ScanControl()
         self._ctrl.start_btn.clicked.connect(self._start_scan)
         self._ctrl.stop_btn.clicked.connect(self._stop_scan)
         vbox.addWidget(self._ctrl)
 
-        # ── Stat Cards ──
+        # Stat Cards 
         card_row = QHBoxLayout()
         card_row.setSpacing(8)
         self._stat_cards: dict[str, StatCard] = {}
@@ -106,7 +106,7 @@ class Dashboard(QMainWindow):
         card_row.addStretch()
         vbox.addLayout(card_row)
 
-        # ── Splitter: table / log ──
+        # table / log 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setStyleSheet(f"background: {PALETTE['bg']};")
 
@@ -149,7 +149,7 @@ class Dashboard(QMainWindow):
 
         vbox.addWidget(splitter, stretch=1)
 
-        # ── Status bar ──
+        # Status bar 
         sb = QStatusBar()
         sb.setStyleSheet(f"color: {PALETTE['muted']}; font-size: 11px;")
         self._status_label = QLabel("Ready.")
@@ -181,15 +181,15 @@ class Dashboard(QMainWindow):
         quit_act = file_menu.addAction("Quit")
         quit_act.triggered.connect(QApplication.quit)
 
-    # ------------------------------------------------------------------
-    # Scan lifecycle
-    # ------------------------------------------------------------------
 
     def _start_scan(self) -> None:
         target = self._ctrl.target_input.text().strip()
         if not target:
             self._log_msg("  Please enter a target URL.")
             return
+
+        header = self._ctrl.header_input.text().strip()
+        header = header if header else None
 
         rps = self._ctrl.rps_spinner.value()
         self._clear_results()
@@ -199,7 +199,7 @@ class Dashboard(QMainWindow):
         self._log_msg(f" Scan started → {target}  (RPS={rps})")
 
         self._parser = ResultParser()
-        self._executor = ScanExecutor(target=target, rps=rps)
+        self._executor = ScanExecutor(target=target, header=header, rps=rps)
 
         # Run asyncio event loop in a background thread
         self._loop = asyncio.new_event_loop()
@@ -228,9 +228,7 @@ class Dashboard(QMainWindow):
         self._log_msg(" Scan stopped by user.")
         self._on_scan_finished()
 
-    # ------------------------------------------------------------------
     # Signal handlers (Qt main thread)
-    # ------------------------------------------------------------------
 
     def _on_finding(self, finding: Finding) -> None:
         self._add_table_row(finding)
@@ -250,15 +248,14 @@ class Dashboard(QMainWindow):
         )
         self._log_msg("DONE  Scan finished.")
 
-    # ------------------------------------------------------------------
     # Table helpers
-    # ------------------------------------------------------------------
+    
 
     def _add_table_row(self, finding: Finding) -> None:
         row = self._table.rowCount()
         self._table.insertRow(row)
 
-        # Severity column: use SeverityBadge widget
+        # Severity column use SeverityBadge widget
         sev_widget = QWidget()
         sev_layout = QHBoxLayout(sev_widget)
         sev_layout.setContentsMargins(4, 2, 4, 2)
@@ -281,9 +278,7 @@ class Dashboard(QMainWindow):
         for card in self._stat_cards.values():
             card.set_count(0)
 
-    # ------------------------------------------------------------------
-    # Export actions
-    # ------------------------------------------------------------------
+
 
     def _export_html(self) -> None:
         if not self._parser or not self._parser.sorted_findings():
@@ -331,9 +326,7 @@ class Dashboard(QMainWindow):
             else:
                 self._log_msg("  PDF generation failed (WeasyPrint missing?).")
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
+
 
     def _log_msg(self, msg: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")

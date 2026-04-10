@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# sh/schedule.sh - Blue Whale cron-ready scan automation.
-#
-# Runs a full scan, compresses results to a dated archive, and rotates
-# old archives/logs older than MAX_AGE_DAYS.
-#
-# Usage:
-#   bash sh/schedule.sh --target <url> [--profile <name>] [--output-dir <dir>]
-#   crontab: 0 2 * * * bash /path/to/sh/schedule.sh --target https://example.com
-#
-# Environment:
-#   WHALE_TARGET      Override target URL
-#   MAX_AGE_DAYS      Days before old archives are purged (default: 30)
 
 set -euo pipefail
 
@@ -72,7 +60,7 @@ if [[ -d "${OUTPUT_DIR}" ]] && compgen -G "${OUTPUT_DIR}/*.html" >/dev/null 2>&1
   find "${OUTPUT_DIR}" -name "*.html" -mmin +1 -delete 2>/dev/null || true
 fi
 
-# Rotate old archives (older than MAX_AGE_DAYS)
+# Rotate old archives
 log "Rotating archives older than ${MAX_AGE_DAYS} days..."
 find "${ARCHIVE_DIR}" -name "*.tar.gz" -mtime "+${MAX_AGE_DAYS}" -delete 2>/dev/null || true
 

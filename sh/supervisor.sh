@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# sh/supervisor.sh - Blue Whale engine crash-recovery supervisor.
-#
-# Manages the whale-engine subprocess lifecycle from outside Python.
-# Watches for process exit, restarts up to MAX_RESTARTS times with
-# exponential backoff.
-#
-# Usage:
-#   bash sh/supervisor.sh [--target <url>] [--profile <name>] [--max-restarts N]
-#
-# Environment:
-#   WHALE_TARGET   Target URL (required if --target not given)
-#   WHALE_PROFILE  Scan profile (optional)
 
 set -euo pipefail
 
@@ -22,7 +10,7 @@ ENGINE_BIN="${BIN_DIR}/whale-engine"
 TARGET="${WHALE_TARGET:-}"
 PROFILE="${WHALE_PROFILE:-}"
 MAX_RESTARTS=5
-RESTART_DELAY=2   # initial delay in seconds (doubles each retry)
+RESTART_DELAY=2   # initial delay in seconds
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

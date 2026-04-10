@@ -75,7 +75,7 @@ class Dashboard(QMainWindow):
 
     def _build_ui(self) -> None:
         root = QWidget()
-        root.setStyleSheet(f"background: {PALETTE['bg']}; color: {PALETTE['text']};")
+        root.setStyleSheet(f"background: {PALETTE['bg']}; color: {PALETTE['text']}; font-family: 'Courier New', monospace;")
         self.setCentralWidget(root)
 
         vbox = QVBoxLayout(root)
@@ -83,10 +83,10 @@ class Dashboard(QMainWindow):
         vbox.setSpacing(12)
 
         # ── Header ──
-        header = QLabel("  Blue Whale")
+        header = QLabel("[ BLUE_WHALE_V3.0_TERMINAL ]")
         header.setStyleSheet(
-            "font-size: 20px; font-weight: 700; color: #e6edf3;"
-            " letter-spacing: 1px; border: none;"
+            f"font-size: 22px; font-weight: 900; color: {PALETTE['text']};"
+            " letter-spacing: 2px; border: none; text-shadow: 0 0 5px #00ff41;"
         )
         vbox.addWidget(header)
 
@@ -109,19 +109,20 @@ class Dashboard(QMainWindow):
 
         # table / log 
         splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.setStyleSheet(f"background: {PALETTE['bg']};")
+        splitter.setStyleSheet(f"QSplitter::handle {{ background: {PALETTE['border']}; height: 1px; }}")
 
         # Findings table
         self._table = QTableWidget(0, len(_TABLE_COLS))
         self._table.setHorizontalHeaderLabels(_TABLE_COLS)
         self._table.setStyleSheet(
-            f"QTableWidget {{ background: {PALETTE['surface']}; color: {PALETTE['text']};"
-            f" gridline-color: {PALETTE['border']}; font-size: 12px; border: none; }}"
-            f"QHeaderView::section {{ background: {PALETTE['surface']}; color: {PALETTE['muted']};"
-            f" font-size: 10px; text-transform: uppercase; letter-spacing: 1px;"
-            f" padding: 6px 8px; border-bottom: 1px solid {PALETTE['border']}; }}"
+            f"QTableWidget {{ background: #000; color: {PALETTE['text']};"
+            f" gridline-color: {PALETTE['muted']}40; font-size: 12px; border: 1px solid {PALETTE['border']};"
+            " font-family: 'Courier New', monospace; }}"
+            f"QHeaderView::section {{ background: #000; color: {PALETTE['muted']};"
+            f" font-size: 10px; text-transform: uppercase; font-weight: bold;"
+            f" padding: 6px 8px; border: 1px solid {PALETTE['border']}; }}"
             f"QTableWidget::item {{ padding: 6px 8px; }}"
-            f"QTableWidget::item:selected {{ background: {PALETTE['accent']}20; }}"
+            f"QTableWidget::item:selected {{ background: {PALETTE['accent']}40; color: #fff; }}"
         )
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
@@ -137,9 +138,9 @@ class Dashboard(QMainWindow):
         self._log.setReadOnly(True)
         self._log.setMaximumBlockCount(2000)
         self._log.setStyleSheet(
-            f"background: {PALETTE['surface']}; color: {PALETTE['muted']};"
-            " font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 11px;"
-            f" border: 1px solid {PALETTE['border']}; border-radius: 6px; padding: 6px;"
+            f"background: #000; color: {PALETTE['muted']};"
+            " font-family: 'Courier New', 'Consolas', monospace; font-size: 11px;"
+            f" border: 1px solid {PALETTE['border']}; border-radius: 0px; padding: 6px;"
         )
         self._log.setFixedHeight(160)
 
@@ -152,14 +153,24 @@ class Dashboard(QMainWindow):
 
         # Status bar 
         sb = QStatusBar()
-        sb.setStyleSheet(f"color: {PALETTE['muted']}; font-size: 11px;")
-        self._status_label = QLabel("Ready.")
+        sb.setStyleSheet(f"background: #000; color: {PALETTE['muted']}; font-size: 11px; border-top: 1px solid {PALETTE['border']};")
+        
+        self._activity_label = QLabel("[ MONITOR: IDLE ]")
+        self._activity_label.setStyleSheet(f"color: {PALETTE['text']}; font-weight: bold; border: none; margin-right: 20px;")
+        sb.addWidget(self._activity_label)
+
+        self._status_label = QLabel("SYSTEM_READY.")
+        self._status_label.setStyleSheet("border: none;")
         sb.addWidget(self._status_label)
         
         self._spinner = QProgressBar()
         self._spinner.setRange(0, 0)
-        self._spinner.setFixedSize(100, 12)
+        self._spinner.setFixedSize(100, 10)
         self._spinner.setTextVisible(False)
+        self._spinner.setStyleSheet(
+            f"QProgressBar {{ background: #000; border: 1px solid {PALETTE['muted']}; border-radius: 0px; }}"
+            f"QProgressBar::chunk {{ background: {PALETTE['accent']}; }}"
+        )
         self._spinner.hide()
         sb.addPermanentWidget(self._spinner)
 
@@ -168,17 +179,15 @@ class Dashboard(QMainWindow):
     def _build_menu(self) -> None:
         mb = self.menuBar()
         mb.setStyleSheet(
-            f"background: {PALETTE['surface']}; color: {PALETTE['text']};"
-            f" border-bottom: 1px solid {PALETTE['border']};"
+            f"QMenuBar {{ background: #000; color: {PALETTE['text']}; border-bottom: 1px solid {PALETTE['border']}; }}"
+            f"QMenuBar::item:selected {{ background: {PALETTE['border']}40; }}"
         )
 
-        file_menu: QMenu = mb.addMenu("File")
+        file_menu: QMenu = mb.addMenu(" [ FILE ] ")
         file_menu.setStyleSheet(
-            f"background: {PALETTE['surface']}; color: {PALETTE['text']};"
+            f"QMenu {{ background: #000; color: {PALETTE['text']}; border: 1px solid {PALETTE['border']}; }}"
+            f"QMenu::item:selected {{ background: {PALETTE['border']}40; }}"
         )
-
-        export_html = file_menu.addAction("Export HTML Report")
-        export_html.triggered.connect(self._export_html)
 
         export_json = file_menu.addAction("Export JSONL")
         export_json.triggered.connect(self._export_jsonl)
@@ -204,6 +213,7 @@ class Dashboard(QMainWindow):
         self._ctrl.start_btn.setEnabled(False)
         self._ctrl.stop_btn.setEnabled(True)
         self._status_label.setText(f"Scanning {target}...")
+        self._activity_label.setText("[ MONITOR: INITIALIZING ]")
         self._spinner.show()
         self._log_msg(f" Scan started -> {target}  (RPS={rps})")
 
@@ -222,13 +232,22 @@ class Dashboard(QMainWindow):
 
     async def _async_scan_worker(self) -> None:
         assert self._executor and self._parser
-        async for line in self._executor.run():
-            finding = self._parser.ingest(line)
-            if finding:
-                self._bridge.finding_found.emit(finding)
-            else:
-                # Emit raw log lines too
-                self._bridge.log_message.emit(line[:200])
+        async for msg in self._executor.run():
+            msg_type = msg.get("type", "")
+            if msg_type == "node":
+                # We can't easily ingest node dict into finding, but we can emit log
+                self._bridge.log_message.emit(f"NODE: {msg.get('url')}")
+            elif msg_type == "status":
+                detail = msg.get("detail", "")
+                if detail:
+                    self._bridge.log_message.emit(f"DETAIL:{detail}")
+            elif msg_type == "fuzz_result":
+                # Handle results
+                pass
+            
+            # Simple fallback for now
+            self._bridge.log_message.emit(str(msg)[:100])
+            
         self._bridge.scan_finished.emit()
 
     def _stop_scan(self) -> None:
@@ -246,12 +265,17 @@ class Dashboard(QMainWindow):
             card.set_count(counts.get(sev, 0))
 
     def _on_log(self, msg: str) -> None:
-        self._log_msg(msg)
+        if msg.startswith("DETAIL:"):
+            detail = msg[7:]
+            self._activity_label.setText(f"[ {detail.upper()} ]")
+        else:
+            self._log_msg(msg)
 
     def _on_scan_finished(self) -> None:
         self._ctrl.start_btn.setEnabled(True)
         self._ctrl.stop_btn.setEnabled(False)
         self._spinner.hide()
+        self._activity_label.setText("[ MONITOR: FINISHED ]")
         total = sum(c.count() for c in self._stat_cards.values()) if self._parser else 0
         self._status_label.setText(
             f"Scan complete - {len(self._parser.sorted_findings()) if self._parser else 0} findings."
@@ -287,24 +311,6 @@ class Dashboard(QMainWindow):
         self._log.clear()
         for card in self._stat_cards.values():
             card.set_count(0)
-
-
-
-    def _export_html(self) -> None:
-        if not self._parser or not self._parser.sorted_findings():
-            self._log_msg("No findings to export.")
-            return
-        out, _ = QFileDialog.getSaveFileName(
-            self, "Save HTML Report", "", "HTML Files (*.html)"
-        )
-        if out:
-            reporter = Reporter(
-                target=self._ctrl.target_input.text(),
-                job_id=self._executor.job_id if self._executor else "export",
-            )
-            reporter.load_from_parser(self._parser)
-            path = reporter.export_html(Path(out).parent)
-            self._log_msg(f"  HTML report saved -> {path}")
 
     def _export_jsonl(self) -> None:
         if not self._parser or not self._parser.sorted_findings():
@@ -345,14 +351,14 @@ class Dashboard(QMainWindow):
     def _apply_dark_palette(self) -> None:
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{
-                background-color: {PALETTE["bg"]};
+                background-color: #000;
                 color: {PALETTE["text"]};
-                font-family: 'Segoe UI', system-ui, sans-serif;
+                font-family: 'Courier New', monospace;
             }}
             QScrollBar:vertical {{
-                background: {PALETTE["surface"]}; width: 10px; border-radius: 5px;
+                background: #000; width: 10px; border: 1px solid {PALETTE["border"]};
             }}
             QScrollBar::handle:vertical {{
-                background: {PALETTE["border"]}; border-radius: 5px; min-height: 30px;
+                background: {PALETTE["border"]}; min-height: 30px;
             }}
         """)

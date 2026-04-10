@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import AsyncIterator
 
-from core.paths import ENGINE_BINARY
+import msgpack
+
+from core.paths import ENGINE_BINARY, TMP_DIR
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_RESTART_DELAY = 2.0  # seconds before restart on crash
+_DEFAULT_RESTART_DELAY = 1.0  # seconds before restart on crash
 _MAX_RESTARTS = 3
-_READ_BUF = 2 * 1024 * 1024  # 2 MB read buffer
+_READ_BUF = 4 * 1024 * 1024  # 4 MB read buffer
 
 
 class EngineError(RuntimeError):
@@ -20,8 +23,10 @@ class EngineError(RuntimeError):
 
 
 class EngineBridge:
-    # Async context manager that owns the Go engine subprocess.
-    # Provides send() for writing commands and stream() for reading events.
+    """
+    Async context manager that owns the Go engine subprocess and communicates
+    via a Unix Domain Socket using MessagePack.
+    """
 
     def __init__(
         self,
@@ -31,6 +36,11 @@ class EngineBridge:
         self._binary = binary or ENGINE_BINARY
         self._extra_args = extra_args or []
         self._proc: asyncio.subprocess.Process | None = None
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._server: asyncio.AbstractServer | None = None
+        self._socket_path: str | None = None
+        self._connected = asyncio.Event()
         self._send_lock = asyncio.Lock()
         self._restarts = 0
 
@@ -41,96 +51,130 @@ class EngineBridge:
     async def __aexit__(self, *_) -> None:
         await self.close()
 
-    async def send(self, msg: dict) -> None:
-        # Write a single JSON-RPC message to the engine stdin.
+    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        self._reader = reader
+        self._writer = writer
+        self._connected.set()
+        logger.debug("[bridge] Engine connected via UDS")
 
-        if self._proc is None or self._proc.stdin is None:
-            raise EngineError("Engine is not running.")
-        line = json.dumps(msg, separators=(",", ":")) + "\n"
+    async def send(self, msg: dict) -> None:
+        """Serialize and send a MessagePack message to the engine."""
+        if not self._connected.is_set() or self._writer is None:
+            await asyncio.wait_for(self._connected.wait(), timeout=10.0)
+        
+        packed = msgpack.packb(msg)
         async with self._send_lock:
-            self._proc.stdin.write(line.encode())
-            await self._proc.stdin.drain()
-        logger.debug("[bridge] -> %s", line.rstrip())
+            try:
+                self._writer.write(packed)
+                await self._writer.drain()
+            except (ConnectionResetError, BrokenPipeError):
+                logger.error("[bridge] Failed to send message: connection lost")
+                raise EngineError("Engine connection lost")
 
     async def stream(self) -> AsyncIterator[dict]:
-        # Async generator that yields parsed JSON dicts from engine stdout.
-        # Automatically restarts the engine on premature exit (up to _MAX_RESTARTS).
-
+        """Stream MessagePack messages from the engine."""
+        unpacker = msgpack.Unpacker(raw=False)
+        
         while True:
-            if self._proc is None or self._proc.stdout is None:
-                raise EngineError("Engine is not running.")
+            if not self._connected.is_set() or self._reader is None:
+                try:
+                    await asyncio.wait_for(self._connected.wait(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    if self._proc and self._proc.returncode is not None:
+                        break # process died
+                    raise EngineError("Timed out waiting for engine to connect")
 
-            stdout = self._proc.stdout
             try:
-                async for raw in stdout:
-                    line = raw.decode(errors="replace").strip()
-                    if not line:
-                        continue
-                    try:
-                        msg = json.loads(line)
-                    except json.JSONDecodeError:
-                        logger.debug("[bridge] Non-JSON from engine: %s", line[:200])
-                        continue
-                    logger.debug("[bridge] <- %s", line[:200])
+                chunk = await self._reader.read(_READ_BUF)
+                if not chunk:
+                    # Connection closed, check for restart
+                    await self._wait_for_exit_and_restart()
+                    if self._restarts > _MAX_RESTARTS:
+                        break
+                    continue
+                
+                unpacker.feed(chunk)
+                for msg in unpacker:
                     yield msg
             except (asyncio.IncompleteReadError, ConnectionResetError):
-                pass  # engine closed stdout
+                await self._wait_for_exit_and_restart()
+                if self._restarts > _MAX_RESTARTS:
+                    break
 
-            # Engine stdout ended - check if it crashed
-            rc = await self._proc.wait()
-            if rc != 0 and self._restarts < _MAX_RESTARTS:
-                logger.warning(
-                    "[bridge] Engine exited with code %s - restarting (%s/%s)...",
-                    rc,
-                    self._restarts + 1,
-                    _MAX_RESTARTS,
-                )
-                await asyncio.sleep(_DEFAULT_RESTART_DELAY)
-                await self._spawn()
-                self._restarts += 1
-            else:
-                # Clean exit or too many restarts
-                break
-
-    async def close(self) -> None:
-        # Gracefully terminate the engine subprocess.
-
+    async def _wait_for_exit_and_restart(self) -> None:
         if self._proc is None:
             return
-        try:
-            if self._proc.stdin:
-                self._proc.stdin.close()
-            if self._proc.returncode is None:
-                self._proc.terminate()
-                try:
-                    await asyncio.wait_for(self._proc.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    self._proc.kill()
-                    await self._proc.wait()
-        except ProcessLookupError:
-            pass
-        finally:
-            logger.debug("[bridge] Engine process closed.")
+            
+        rc = await self._proc.wait()
+        self._connected.clear()
+        
+        if rc != 0 and self._restarts < _MAX_RESTARTS:
+            logger.warning(
+                "[bridge] Engine exited with code %s - restarting (%s/%s)...",
+                rc, self._restarts + 1, _MAX_RESTARTS
+            )
+            await asyncio.sleep(_DEFAULT_RESTART_DELAY)
+            self._restarts += 1
+            await self._spawn()
+        else:
             self._proc = None
+
+    async def close(self) -> None:
+        """Gracefully terminate the engine and cleanup sockets."""
+        self._connected.clear()
+        if self._writer:
+            try:
+                self._writer.close()
+                await self._writer.wait_closed()
+            except:
+                pass
+        
+        if self._server:
+            self._server.close()
+            await self._server.wait_closed()
+            
+        if self._proc:
+            try:
+                if self._proc.returncode is None:
+                    self._proc.terminate()
+                    await asyncio.wait_for(self._proc.wait(), timeout=5.0)
+            except:
+                if self._proc: self._proc.kill()
+            self._proc = None
+
+        if self._socket_path and os.path.exists(self._socket_path):
+            try:
+                os.unlink(self._socket_path)
+            except:
+                pass
 
     async def _spawn(self) -> None:
         if not self._binary.exists():
-            raise EngineError(
-                f"whale-engine binary not found at {self._binary}. "
-                "Run 'python main.py bootstrap' to build it."
-            )
-        cmd = [str(self._binary), "serve"] + self._extra_args
+            raise EngineError(f"Engine binary not found at {self._binary}")
+
+        # Ensure TMP_DIR exists
+        TMP_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Create a unique socket path in TMP_DIR
+        fd, path = tempfile.mkstemp(suffix=".sock", dir=str(TMP_DIR))
+        os.close(fd)
+        os.unlink(path) # start_unix_server will create it
+        self._socket_path = path
+
+        self._server = await asyncio.start_unix_server(self._handle_client, path)
+        
+        cmd = [str(self._binary), "serve", "--socket", path] + self._extra_args
         logger.info("[bridge] Spawning engine: %s", " ".join(cmd))
+        
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdin=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            limit=_READ_BUF,
         )
         logger.info("[bridge] Engine PID=%s", self._proc.pid)
 
-        # Drain stderr in background so it doesn't block the pipe
+        # Still drain stderr for debugging
         asyncio.create_task(self._drain_stderr())
 
     async def _drain_stderr(self) -> None:

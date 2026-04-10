@@ -12,6 +12,7 @@ from typing import AsyncIterator
 import yaml
 
 from core.bridge import EngineBridge, EngineError
+from core.oast import OASTServer
 from core.paths import DATA_DIR, SETTINGS_FILE, TMP_DIR, ensure_dir
 from core.state_machine import StateMachine
 from core.waf import WAFFingerprinter
@@ -96,8 +97,18 @@ class ScanExecutor:
         self._cooldown_seconds: int = stealth_cfg["cooldown_seconds"]
         self._rotate_ua: bool = stealth_cfg.get("rotate_user_agents", True)
 
-        self._state_machine = StateMachine()
+        oast_cfg = cfg.get("oast", {})
+        oast_domain = oast_cfg.get("domain", "oast.local")
+        self._oast_server = OASTServer(
+            domain=oast_domain,
+            public_ip=oast_cfg.get("public_ip", "127.0.0.1")
+        )
+        self._oast_http_port = oast_cfg.get("http_port", 80)
+        self._oast_dns_port = oast_cfg.get("dns_port", 53)
+
+        self._state_machine = StateMachine(oast_domain=oast_domain)
         self._waf_fp = WAFFingerprinter()
+
         self._detected_waf: str | None = None
         self._cancelled = False
         self._paused = False  # WAF cooldown pause flag - prevents blocking IPC stream
@@ -116,6 +127,9 @@ class ScanExecutor:
             logger.info("[%s] DRY RUN - engine not spawned.", self.job_id)
             yield {"type": "dry_run", "job_id": self.job_id, "target": self.target}
             return
+
+        # Start OAST Server
+        await self._oast_server.start(self._oast_http_port, self._oast_dns_port)
 
         ua = _get_random_ua() if self._rotate_ua else _get_random_ua()
 
@@ -154,9 +168,30 @@ class ScanExecutor:
 
                 sender_task = asyncio.create_task(_fuzz_sender())
 
+                last_oast_event_idx = 0
                 async for msg in bridge.stream():
                     if self._cancelled:
                         break
+
+                    # Check for OAST events
+                    while last_oast_event_idx < len(self._oast_server.events):
+                        event = self._oast_server.events[last_oast_event_idx]
+                        last_oast_event_idx += 1
+                        
+                        # Process OAST event in state machine
+                        oast_msg = {
+                            "type": "oast_hit",
+                            "protocol": event.protocol,
+                            "identifier": event.identifier,
+                            "remote_addr": event.remote_addr,
+                            "data": event.data
+                        }
+                        
+                        follow_ups = self._state_machine.process_oast_hit(oast_msg)
+                        for job in follow_ups:
+                            await pending_jobs.put(job.to_dict())
+                        
+                        yield oast_msg
 
                     msg_type = msg.get("type", "")
 
@@ -214,6 +249,8 @@ class ScanExecutor:
         except EngineError as exc:
             logger.error("[%s] Engine error: %s", self.job_id, exc)
             yield {"type": "error", "message": str(exc)}
+        finally:
+            await self._oast_server.stop()
 
         logger.info(
             "[%s] Scan complete - %d endpoints discovered",

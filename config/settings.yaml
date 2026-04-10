@@ -42,14 +42,20 @@ fuzzer:
     - comment_inject
     - null_byte
 
+oast:
+  domain: "bluewhale-oast.com"
+  public_ip: "127.0.0.1"   # Default for local testing
+  dns_port: 1053          # Use non-privileged ports for dev
+  http_port: 1080
+
 stealth:
-  cooldown_threshold: 5     # consecutive 403/429 before cooldown triggers
+  cooldown_threshold: 5
+     # consecutive 403/429 before cooldown triggers
   cooldown_seconds: 30      # seconds to pause when cooldown fires
   rotate_user_agents: true
 
 reporting:
   formats:
-    - html
     - json
   output_dir: "reports"
   pdf_enabled: false        # requires weasyprint; toggled on if available

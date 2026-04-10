@@ -106,18 +106,15 @@ _ROW_TEMPLATE = """\
 
 
 def _html_escape(s: str) -> str:
-    return (s
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;"))
-
-
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 class Reporter:
-    
-
     def __init__(self, target: str, job_id: str = "unknown") -> None:
         self.target = target
         self.job_id = job_id
@@ -127,10 +124,11 @@ class Reporter:
         self._findings = parser.sorted_findings()
 
     def load_from_list(self, findings: list["Finding"]) -> None:
-        from core.parser import Severity, _SEVERITY_RANK
-        self._findings = sorted(findings, key=lambda f: _SEVERITY_RANK.get(f.severity, 99))
+        from core.parser import _SEVERITY_RANK, Severity
 
-
+        self._findings = sorted(
+            findings, key=lambda f: _SEVERITY_RANK.get(f.severity, 99)
+        )
 
     def export_html(self, output_dir: Path) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -158,10 +156,9 @@ class Reporter:
             logger.error("[Reporter] PDF generation failed: %s", exc)
             return None
 
-    
-
     def _render_html(self) -> str:
         from core.parser import Severity
+
         stats = {s.value: 0 for s in Severity}
         for f in self._findings:
             stats[f.severity.value] = stats.get(f.severity.value, 0) + 1
@@ -188,7 +185,8 @@ class Reporter:
             cnt_medium=stats.get("medium", 0),
             cnt_low=stats.get("low", 0),
             cnt_info=stats.get("info", 0),
-            rows=rows or "<tr><td colspan='6' style='text-align:center;color:#8b949e'>No findings.</td></tr>",
+            rows=rows
+            or "<tr><td colspan='6' style='text-align:center;color:#8b949e'>No findings.</td></tr>",
         )
 
     @staticmethod

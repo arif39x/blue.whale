@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 class _WafSig(NamedTuple):
     name: str
-    # (header_name, pattern) - checked case-insensitively on the header VALUE
+    # (header_name, pattern) checked case-insensitively on the header VALUE
     header_patterns: list[tuple[str, str]]
     # regex patterns matched against the response body (first 8 KB)
     body_patterns: list[str]

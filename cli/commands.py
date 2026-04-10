@@ -32,12 +32,13 @@ def _setup_logging(verbose: bool) -> None:
 
 
 _COLOURS = {
-    "critical": "\033[91m",
-    "high": "\033[93m",
-    "medium": "\033[33m",
-    "low": "\033[32m",
-    "info": "\033[36m",
+    "critical": "\033[31;1m",  # Red Bold
+    "high": "\033[33;1m",      # Yellow Bold
+    "medium": "\033[33m",      # Yellow
+    "low": "\033[32m",         # Green
+    "info": "\033[32m",        # Green
     "reset": "\033[0m",
+    "matrix": "\033[32m",      # Matrix Green
 }
 
 
@@ -56,32 +57,38 @@ def _print_node(msg: dict) -> None:
     score = msg.get("score", 0.0)
     depth = msg.get("depth", 0)
     param_str = f"  params=[{', '.join(params)}]" if params else ""
-    click.echo(f"  \033[90m[NODE d={depth} score={score:.1f}]\033[0m  {url}{param_str}")
+    click.echo(f"  \033[32m[+] NODE_DISCOVERED (d={depth} s={score:.1f})\033[0m {url}{param_str}")
 
 
 def _print_status(msg: dict) -> None:
     phase = msg.get("phase", "")
     progress = msg.get("progress", 0)
+    detail = msg.get("detail", "")
+    
+    # Trim detail if too long for terminal
+    if len(detail) > 50:
+        detail = detail[:47] + "..."
+        
     click.echo(
-        f"  \033[36m[{phase.upper():12s}]\033[0m  {progress}% complete", nl=False
+        f"  \033[32;1m[EXECUTING_{phase.upper()}]\033[0m {progress}% | {detail:<50}", nl=False
     )
     click.echo("\r", nl=False)
 
 
 def _print_summary(parser: ResultParser) -> None:
     stats = parser.stats
-    click.echo("\n" + "─" * 60)
-    click.echo("  Findings Summary")
-    click.echo("─" * 60)
+    click.echo("\n" + "\033[32m=" * 60)
+    click.echo(" [ SYSTEM_SCAN_RECAP ]")
+    click.echo("=" * 60 + "\033[0m")
     any_found = False
     for sev in ("critical", "high", "medium", "low", "info"):
         count = stats.get(sev, 0)
         if count:
-            click.echo(f"  {_c(sev, f'{sev.upper():10s}')}  {count}")
+            click.echo(f"  {_c(sev, f'{sev.upper():12s}')} {count}")
             any_found = True
     if not any_found:
-        click.echo("  No findings.")
-    click.echo("─" * 60)
+        click.echo("  NO_VULNS_DETECTED.")
+    click.echo("\033[32m" + "=" * 60 + "\033[0m")
 
 
 @click.group()
@@ -111,8 +118,8 @@ def cli() -> None:
 @click.option(
     "--format",
     "fmt",
-    default="html",
-    type=click.Choice(["html", "json", "csv", "pdf"]),
+    default="json",
+    type=click.Choice(["json", "csv", "pdf"]),
     show_default=True,
 )
 @click.option(
@@ -196,13 +203,13 @@ def cmd_scan(
         is_running = True
 
         async def spinner_task() -> None:
-            chars = ["[=   ]", "[ =  ]", "[  = ]", "[   =]", "[  = ]", "[ =  ]"]
+            chars = ["|", "/", "-", "\\"]
             idx = 0
             while is_running:
-                sys.stdout.write(f"\r  \033[36m{chars[idx]}\033[0m Scanning... ")
+                sys.stdout.write(f"\r  \033[32m{chars[idx]}\033[0m RUNNING_SCAN... ")
                 sys.stdout.flush()
                 idx = (idx + 1) % len(chars)
-                await asyncio.sleep(0.15)
+                await asyncio.sleep(0.1)
             # clear line
             sys.stdout.write("\r\033[K")
             sys.stdout.flush()
@@ -215,70 +222,90 @@ def cmd_scan(
             async for msg in executor.run():
                 msg_type = msg.get("type", "")
 
-            if msg_type == "node":
-                node_count += 1
-                if show_nodes:
-                    _print_node(msg)
+                if msg_type == "node":
+                    node_count += 1
+                    if show_nodes:
+                        _print_node(msg)
 
-            elif msg_type == "fuzz_result":
-                # Try to build a finding from this result for the parser
-                # fuzz_result is a low-level event; parser ingests it if it maps to a vuln
-                status = msg.get("status", 0)
-                reflect = msg.get("reflect", False)
-                timing = msg.get("timing_hit", False)
-                # Synthesise a minimal nuclei-compatible finding for reflection/timing
-                if reflect:
+                elif msg_type == "oast_hit":
                     if spin_task:
                         sys.stdout.write("\r\033[K")
+                    protocol = msg.get("protocol", "UNKNOWN")
+                    identifier = msg.get("identifier", "unknown")
+                    remote_addr = msg.get("remote_addr", "unknown")
+                    click.echo(f"  \033[91m[OAST HIT]\033[0m {protocol} interaction from {remote_addr} (ID: {identifier})")
                     synthetic = {
-                        "template-id": "xss-reflection",
+                        "template-id": f"oast-{protocol.lower()}",
                         "info": {
-                            "name": "XSS Reflection Detected",
-                            "severity": "medium",
-                        },
-                        "host": target,
-                        "matched-at": msg.get("url", target),
-                        "status-code": status,
-                    }
-                    finding = parser.ingest(json.dumps(synthetic))
-                    if finding:
-                        _print_finding(finding)
-                if timing:
-                    if spin_task:
-                        sys.stdout.write("\r\033[K")
-                    synthetic = {
-                        "template-id": "time-based-sqli",
-                        "info": {
-                            "name": "Time-Based Injection (Timing Oracle)",
+                            "name": f"Out-of-Band {protocol} Interaction",
                             "severity": "high",
                         },
                         "host": target,
-                        "matched-at": msg.get("url", target),
-                        "status-code": status,
+                        "matched-at": f"OAST ID: {identifier}",
                     }
                     finding = parser.ingest(json.dumps(synthetic))
                     if finding:
                         _print_finding(finding)
 
-            elif msg_type == "status":
-                if verbose:
-                    _print_status(msg)
+                elif msg_type == "fuzz_result":
+                    # Try to build a finding from this result for the parser
+                    # fuzz_result is a low-level event; parser ingests it if it maps to a vuln
+                    status = msg.get("status", 0)
+                    reflect = msg.get("reflect", False)
+                    timing = msg.get("timing_hit", False)
+                    # Synthesise a minimal nuclei-compatible finding for reflection/timing
+                    if reflect:
+                        if spin_task:
+                            sys.stdout.write("\r\033[K")
+                        synthetic = {
+                            "template-id": "xss-reflection",
+                            "info": {
+                                "name": "XSS Reflection Detected",
+                                "severity": "medium",
+                            },
+                            "host": target,
+                            "matched-at": msg.get("url", target),
+                            "status-code": status,
+                        }
+                        finding = parser.ingest(json.dumps(synthetic))
+                        if finding:
+                            _print_finding(finding)
+                    if timing:
+                        if spin_task:
+                            sys.stdout.write("\r\033[K")
+                        synthetic = {
+                            "template-id": "time-based-sqli",
+                            "info": {
+                                "name": "Time-Based Injection (Timing Oracle)",
+                                "severity": "high",
+                            },
+                            "host": target,
+                            "matched-at": msg.get("url", target),
+                            "status-code": status,
+                        }
+                        finding = parser.ingest(json.dumps(synthetic))
+                        if finding:
+                            _print_finding(finding)
 
-            elif msg_type == "scan_done":
-                total = msg.get("total_nodes", node_count)
-                click.echo(f"\n  Crawl complete - {total} endpoints discovered.")
+                elif msg_type == "status":
+                    if verbose:
+                        _print_status(msg)
 
-            elif msg_type == "error":
-                if spin_task:
-                    sys.stdout.write("\r\033[K")
-                click.echo(
-                    f"\n  \033[91m[ERROR]\033[0m {msg.get('message', '')}", err=True
-                )
+                elif msg_type == "scan_done":
+                    total = msg.get("total_nodes", node_count)
+                    click.echo(f"\n  Crawl complete - {total} endpoints discovered.")
 
-            elif msg_type == "dry_run":
-                click.echo(
-                    f"  DRY RUN: would scan {msg.get('target')} (job {msg.get('job_id')})"
-                )
+                elif msg_type == "error":
+                    if spin_task:
+                        sys.stdout.write("\r\033[K")
+                    click.echo(
+                        f"\n  \033[91m[ERROR]\033[0m {msg.get('message', '')}", err=True
+                    )
+
+                elif msg_type == "dry_run":
+                    click.echo(
+                        f"  DRY RUN: would scan {msg.get('target')} (job {msg.get('job_id')})"
+                    )
 
         finally:
             is_running = False
@@ -293,10 +320,7 @@ def cmd_scan(
         reporter = Reporter(target=target, job_id=executor.job_id)
         reporter.load_from_parser(parser)
 
-        if fmt == "html":
-            path = reporter.export_html(out_dir)
-            click.echo(f"\n  HTML report -> {path}")
-        elif fmt == "json":
+        if fmt == "json":
             path = parser.export_jsonl(out_dir / f"whale_{executor.job_id}.jsonl")
             click.echo(f"\n  JSONL export -> {path}")
         elif fmt == "csv":
@@ -317,8 +341,8 @@ def cmd_scan(
 @click.option(
     "--format",
     "fmt",
-    default="html",
-    type=click.Choice(["html", "pdf"]),
+    default="pdf",
+    type=click.Choice(["pdf"]),
     show_default=True,
 )
 @click.option(
@@ -331,7 +355,7 @@ def cmd_report(
     fmt: str,
     severity: str | None,
 ) -> None:
-    # Generate an HTML/PDF report from a JSONL RESULTS_FILE.
+    # Generate a PDF report from a JSONL RESULTS_FILE.
     sev_list = [s.strip() for s in severity.split(",")] if severity else None
     out_dir = Path(output) if output else ensure_dir(REPORTS_DIR)
 
@@ -340,9 +364,7 @@ def cmd_report(
     reporter = Reporter(target=target, job_id=results_file.stem)
     reporter.load_from_parser(parser)
 
-    path = (
-        reporter.export_html(out_dir) if fmt == "html" else reporter.export_pdf(out_dir)
-    )
+    path = reporter.export_pdf(out_dir)
     if path:
         click.echo(f"  Report saved -> {path}")
     else:

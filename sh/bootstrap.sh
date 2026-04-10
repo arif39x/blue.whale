@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# sh/bootstrap.sh - Blue Whale bootstrap script.
-#
-# Validates Go installation, fetches golang.org/x/net, builds the native
-# whale-engine binary, and sets up the Python virtual environment.
-#
+
 # Usage:
 #   bash sh/bootstrap.sh [--force]
 
@@ -36,19 +32,16 @@ echo "║       Blue Whale - Bootstrap         ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
-# ── Go ─────────────────────────────────────────────────────────────────────
 if ! command -v go &>/dev/null; then
   die "Go is not installed. Install from https://go.dev/dl/ and retry."
 fi
 GO_VERSION="$(go version | awk '{print $3}')"
 ok "Go found: ${GO_VERSION}"
 
-# ── Fetch dependencies ──────────────────────────────────────────────────────
 log "Fetching Go dependencies (golang.org/x/net)..."
 (cd "${ENGINE_SRC}" && go mod download && go mod tidy)
 ok "Go dependencies resolved."
 
-# ── Build whale-engine ──────────────────────────────────────────────────────
 if [[ "${FORCE}" == "false" && -x "${ENGINE_BIN}" ]]; then
   ok "whale-engine already built - skipping (use --force to rebuild)."
 else
@@ -61,7 +54,6 @@ fi
 # Sanity check
 "${ENGINE_BIN}" check && ok "whale-engine self-check passed."
 
-# ── Python venv ─────────────────────────────────────────────────────────────
 VENV_DIR="${PROJECT_ROOT}/.venv"
 if [[ ! -d "${VENV_DIR}" ]]; then
   log "Creating Python virtual environment at ${VENV_DIR}..."
@@ -76,14 +68,13 @@ log "Installing Python dependencies..."
 "${PIP}" install --quiet -r "${PROJECT_ROOT}/requirements.txt"
 ok "Python dependencies installed."
 
-# ── jq (optional utility) ───────────────────────────────────────────────────
 if command -v jq &>/dev/null; then
   ok "jq available: $(jq --version)"
 else
   warn "jq not found - useful for debugging JSON output. Install: sudo apt install jq"
 fi
 
-# ── Directories ─────────────────────────────────────────────────────────────
+
 mkdir -p "${PROJECT_ROOT}/data/tmp" \
          "${PROJECT_ROOT}/data/archives" \
          "${PROJECT_ROOT}/reports"

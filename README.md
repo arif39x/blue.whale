@@ -89,4 +89,4 @@ Runtime parameters are located in `config/settings.yaml`. You can configure loca
 
 ---
 
-_Disclaimer: Blue Whale is intended for authorized security testing only. The author is not responsible for any misuse of this tool._
+_Disclaimer: Blue Whale is intended for authorized security testing only. The author is not responsible for any misuse of this tool.And Currently its in Development Phase._

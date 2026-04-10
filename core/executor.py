@@ -100,18 +100,12 @@ class ScanExecutor:
         self._waf_fp = WAFFingerprinter()
         self._detected_waf: str | None = None
         self._cancelled = False
+        self._paused = False  # WAF cooldown pause flag - prevents blocking IPC stream
 
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
 
     async def run(self) -> AsyncIterator[dict]:
-        # Async generator that yields raw message dicts from the scan.
-        # Callers should check msg["type"]:
-        #   "fuzz_result" -> feed to parser
-        #   "node"        -> informational (endpoint discovered)
-        #   "status"      -> progress update
-        #   "scan_done"   -> crawl phase complete
-        #   "error"       -> engine error
 
         ensure_dir(TMP_DIR / self.job_id)
         logger.info(
@@ -146,6 +140,10 @@ class ScanExecutor:
 
                 async def _fuzz_sender():
                     while not self._cancelled:
+                        # WAF Cooldown: pause sending new fuzz jobs but don't block IPC
+                        if self._paused:
+                            await asyncio.sleep(1)
+                            continue
                         try:
                             job = await asyncio.wait_for(
                                 pending_jobs.get(), timeout=1.0
@@ -171,14 +169,31 @@ class ScanExecutor:
 
                     elif msg_type == "fuzz_result":
                         status = msg.get("status", 0)
-                        # WAF cooldown
-                        if self._waf_cooldown.record(status):
+                        # WAF cooldown - NON-BLOCKING: uses async background task
+                        # This allows the IPC stream to continue reading from Go engine
+                        # while pausing new fuzz job sends (prevents OS pipe buffer overflow)
+                        if self._waf_cooldown.record(status) and not self._paused:
                             logger.warning(
-                                "[%s] WAF cooldown triggered - pausing %ss",
+                                "[%s] WAF cooldown triggered - pausing sends %ss",
                                 self.job_id,
                                 self._cooldown_seconds,
                             )
-                            await asyncio.sleep(self._cooldown_seconds)
+
+                            async def _cooldown_task():
+                                """Async background task for WAF cooldown.
+                                Sets paused flag, sleeps, then clears it.
+                                Does NOT block the main IPC stream."""
+                                self._paused = True
+                                await asyncio.sleep(self._cooldown_seconds)
+                                self._paused = False
+                                logger.info(
+                                    "[%s] WAF cooldown complete - resuming sends",
+                                    self.job_id,
+                                )
+
+                            # Fire-and-forget: don't await, let it run concurrently
+                            asyncio.create_task(_cooldown_task())
+
                         # State machine follow-up
                         follow_ups = self._state_machine.process_result(msg)
                         for job in follow_ups:

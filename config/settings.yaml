@@ -10,13 +10,13 @@ paths:
   user_agents: "data/user_agents.txt"
 
 engine:
-  workers: 10               # goroutine worker pool size for the crawler
+  workers: 100          # goroutine worker pool size for the crawler (increased for high-performance)
   max_depth: 3              # maximum crawl depth from seed URL
   ua_rotation: true         # rotate User-Agent per request (uses data/user_agents.txt)
-  timeout_seconds: 30       # per-request HTTP timeout inside the Go engine
+  timeout_seconds: 5       # per-request HTTP timeout (reduced for faster failure detection)
 
 scan:
-  default_rps: 10           # requests-per-second throttle
+  default_rps: 100           # requests-per-second throttle (increased for faster scanning)
   timeout_seconds: 300      # hard wall-clock timeout for the full scan job
   max_depth: 3              # crawl depth (also passed to engine config)
   severity_filter:          # only report these severity levels
@@ -61,10 +61,13 @@ logging:
 profiles:
   full:
     severity_filter: ["critical", "high", "medium", "low", "info"]
-    rps: 20
+    rps: 50
   fast:
     severity_filter: ["critical", "high"]
-    rps: 50
+    rps: 100
+  aggressive:
+    severity_filter: ["critical", "high", "medium"]
+    rps: 200
   stealth:
     severity_filter: ["critical", "high"]
-    rps: 2
+    rps: 5

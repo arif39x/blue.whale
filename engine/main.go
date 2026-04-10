@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -91,18 +92,26 @@ func emit(v any) {
 }
 
 func newClient(cfg ScanConfig) *http.Client {
+	// Dynamic connection pooling based on worker count
+	// This prevents TLS handshake thrashing by maintaining adequate keep-alive connections
+	workers := cfg.Workers
+	if workers <= 0 {
+		workers = 10
+	}
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // intentional for scanning
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 10 * time.Second,
 		}).DialContext,
-		MaxIdleConns:          200,
-		MaxIdleConnsPerHost:   50,
-		IdleConnTimeout:       30 * time.Second,
+		// Scale connection pools with worker count to prevent connection exhaustion
+		MaxIdleConns:        workers * 5,     // Global idle connection pool
+		MaxIdleConnsPerHost: workers * 2,     // Per-host connection pool (handles high concurrency)
+		IdleConnTimeout:     60 * time.Second, // Keep connections alive longer for reuse
+		// Timeouts remain conservative to prevent hanging on slow endpoints
 		TLSHandshakeTimeout:   8 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,
-		DisableCompression:    false,
+		DisableCompression:    false, // HTTP/2 multiplexing remains enabled by default
 	}
 	timeout := time.Duration(cfg.Timeout) * time.Second
 	if timeout == 0 {
@@ -201,13 +210,17 @@ func scoreEndpoint(rawURL string, params []string) float64 {
 }
 
 type crawler struct {
-	client  *http.Client
-	cfg     ScanConfig
-	seen    sync.Map
-	queue   chan crawlJob
-	wg      sync.WaitGroup
-	total   atomic.Int64
-	crawled atomic.Int64
+	client       *http.Client
+	cfg          ScanConfig
+	seen         sync.Map
+	queue        chan crawlJob
+	wg           sync.WaitGroup
+	total        atomic.Int64
+	crawled      atomic.Int64
+	// Queue manager pattern: prevents goroutine explosion by batching enqueue operations
+	pendingMu    sync.Mutex
+	pendingJobs  []crawlJob
+	queueManager chan struct{} // Signals queue manager to process pending jobs
 }
 
 type crawlJob struct {
@@ -222,6 +235,8 @@ func (c *crawler) run(seeds []string) {
 	}
 
 	c.queue = make(chan crawlJob, workers*20)
+	c.pendingJobs = make([]crawlJob, 0, workers*10)
+	c.queueManager = make(chan struct{}, 1)
 
 	// Rate limiter
 	var rateTicker <-chan time.Time
@@ -230,6 +245,27 @@ func (c *crawler) run(seeds []string) {
 		defer ticker.Stop()
 		rateTicker = ticker.C
 	}
+
+	// Start the Queue Manager goroutine
+	// This prevents goroutine explosion by batching job enqueues through a mutex-protected slice
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		for range c.queueManager {
+			c.pendingMu.Lock()
+			batch := c.pendingJobs
+			c.pendingJobs = make([]crawlJob, 0, workers*10)
+			c.pendingMu.Unlock()
+
+			for _, job := range batch {
+				if _, loaded := c.seen.LoadOrStore(job.rawURL, true); loaded {
+					continue
+				}
+				c.total.Add(1)
+				c.queue <- job
+			}
+		}
+	}()
 
 	// Launch workers
 	for i := 0; i < workers; i++ {
@@ -257,6 +293,7 @@ func (c *crawler) run(seeds []string) {
 	// Drain: close queue once all pending work is done
 	go func() {
 		c.wg.Wait()
+		close(c.queueManager)
 		close(c.queue)
 	}()
 
@@ -266,14 +303,19 @@ func (c *crawler) run(seeds []string) {
 }
 
 func (c *crawler) enqueue(job crawlJob) {
-	if _, loaded := c.seen.LoadOrStore(job.rawURL, true); loaded {
-		return
+	// Queue Manager Pattern:
+	// Instead of spawning a goroutine per job (causing goroutine explosion),
+	// we append to a mutex-protected slice and signal a dedicated queue manager.
+	// The manager batches inserts into the channel safely without blocking callers.
+	c.pendingMu.Lock()
+	c.pendingJobs = append(c.pendingJobs, job)
+	c.pendingMu.Unlock()
+
+	// Signal queue manager to process pending jobs (non-blocking)
+	select {
+	case c.queueManager <- struct{}{}:
+	default:
 	}
-	c.total.Add(1)
-	c.wg.Add(1)
-	go func() {
-		c.queue <- job
-	}()
 }
 
 func (c *crawler) visit(job crawlJob) {
@@ -296,7 +338,6 @@ func (c *crawler) visit(job crawlJob) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
 
 	c.crawled.Add(1)
 
@@ -322,20 +363,36 @@ func (c *crawler) visit(job crawlJob) {
 		emit(StatusMsg{Type: "status", Phase: "crawling", Progress: pct})
 	}
 
-	// Recurse into links if within depth limit
+	// Asynchronous HTML Parsing:
+	// Free up the network worker immediately after downloading.
+	// Read body into memory, close response, then spawn a detached goroutine for parsing.
 	maxDepth := c.cfg.MaxDepth
 	if maxDepth <= 0 {
 		maxDepth = 3
 	}
 	if job.depth < maxDepth && isHTMLContent(resp) {
-		base, err := url.Parse(job.rawURL)
-		if err != nil {
-			return
+		// Read entire body into memory (bounded by 512KB to prevent OOM)
+		bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+		resp.Body.Close() // Close immediately to free connection back to pool
+
+		if err == nil {
+			// Spawn detached goroutine for parsing - doesn't block this worker
+			c.wg.Add(1)
+			go func() {
+				defer c.wg.Done()
+				base, err := url.Parse(job.rawURL)
+				if err != nil {
+					return
+				}
+				// Parse from in-memory buffer instead of blocking on network I/O
+				links := extractLinks(base, bytes.NewReader(bodyBytes))
+				for _, link := range links {
+					c.enqueue(crawlJob{rawURL: link, depth: job.depth + 1})
+				}
+			}()
 		}
-		links := extractLinks(base, resp.Body)
-		for _, link := range links {
-			c.enqueue(crawlJob{rawURL: link, depth: job.depth + 1})
-		}
+	} else {
+		resp.Body.Close() // Always close body for non-HTML responses
 	}
 }
 
@@ -405,9 +462,10 @@ func serve() {
 	scanner.Buffer(make([]byte, 4*1024*1024), 4*1024*1024)
 
 	var (
-		client  *http.Client
-		fuzzWg  sync.WaitGroup
-		fuzzSem chan struct{} // concurrency limit for fuzz jobs
+		client     *http.Client
+		fuzzWg     sync.WaitGroup
+		fuzzSem    chan struct{} // concurrency limit for fuzz jobs
+		crawlDone  chan struct{}
 	)
 
 	for scanner.Scan() {
@@ -435,15 +493,17 @@ func serve() {
 
 			emit(StatusMsg{Type: "status", Phase: "crawling", Progress: 0})
 
+			// Run crawler in background so fuzzing can start immediately as nodes are discovered
+			crawlDone = make(chan struct{})
 			c := &crawler{client: client, cfg: cfg}
-			c.run(msg.Targets)
-			// Wait until all crawl jobs drain
-			c.wg.Wait()
-
-			emit(ScanDoneMsg{
-				Type:       "scan_done",
-				TotalNodes: c.crawled.Load(),
-			})
+			go func() {
+				c.run(msg.Targets)
+				close(crawlDone)
+				emit(ScanDoneMsg{
+					Type:       "scan_done",
+					TotalNodes: c.crawled.Load(),
+				})
+			}()
 
 		case "fuzz_job":
 			if client == nil {
@@ -466,13 +526,10 @@ func serve() {
 
 	// Wait for all in-flight fuzz jobs to finish before exiting
 	fuzzWg.Wait()
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
+	// Drain crawler goroutine if still running
+	if crawlDone != nil {
+		<-crawlDone
 	}
-	return b
 }
 
 func main() {

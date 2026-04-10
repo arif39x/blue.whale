@@ -123,15 +123,61 @@ class StateMachine:
     # Call process_node() on every node event,
     # Call process_result() on every fuzz_result event.
 
+    # URL signature deduplication threshold - discard nodes after this many identical signatures
+    SIGNATURE_THRESHOLD = 3
+
     def __init__(self) -> None:
         self._endpoints: dict[str, Endpoint] = {}
+        # Track URL signatures for deduplication (e.g., /item?id=1 and /item?id=2 both become /item?id={int})
+        self._url_signatures: dict[str, int] = {}
+
+    def _generate_signature(self, raw_url: str) -> str:
+        """Generate a URL signature for clustering.
+        Normalizes numeric IDs and similar patterns to prevent scanning
+        10,000 identical product pages.
+        Examples:
+          /item?id=1 → /item?id={int}
+          /item?id=abc → /item?id={str}
+          /user/123/profile → /user/{int}/profile
+        """
+        parsed = urlparse(raw_url)
+        path = parsed.path
+        # Normalize path segments that look like IDs (all digits)
+        path = _NUMERIC_ID_RE.sub("{int}", path)
+
+        # Normalize query parameters
+        query_parts = []
+        for key, values in parse_qs(parsed.query).items():
+            for val in values:
+                if val.isdigit():
+                    query_parts.append(f"{key}={{int}}")
+                elif val.isalpha():
+                    query_parts.append(f"{key}={{str}}")
+                elif re.match(r'^[a-f0-9]{8,}$', val, re.I):
+                    query_parts.append(f"{key}={{hex}}")
+                else:
+                    query_parts.append(f"{key}={{val}}")
+
+        sig = path
+        if query_parts:
+            sig += "?" + "&".join(sorted(query_parts))  # Sort for consistency
+        return sig
 
     def process_node(self, node: dict) -> list[FuzzJob]:
         # Process a new endpoint node and return initial fuzz jobs.
+        # Includes URL clustering deduplication to avoid scanning 10,000 identical pages.
 
         raw_url = node.get("url", "")
         params = node.get("params", [])
         score = node.get("score", 1.0)
+
+        # URL Signature Deduplication:
+        # If we've seen this signature >3 times, skip it to prevent redundant scanning
+        signature = self._generate_signature(raw_url)
+        self._url_signatures[signature] = self._url_signatures.get(signature, 0) + 1
+        if self._url_signatures[signature] > self.SIGNATURE_THRESHOLD:
+            # Discard this node - don't queue fuzz jobs for it
+            return []
 
         ep = Endpoint(url=raw_url, params=params, score=score, state=State.RECON)
         self._endpoints[raw_url] = ep

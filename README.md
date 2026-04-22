@@ -16,7 +16,7 @@
 
 ---
 
-## 🛠️ Setup & Installation
+##  Setup & Installation
 
 ### Requirements
 

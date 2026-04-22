@@ -53,6 +53,8 @@ stealth:
      # consecutive 403/429 before cooldown triggers
   cooldown_seconds: 30      # seconds to pause when cooldown fires
   rotate_user_agents: true
+  jitter: true
+  proxies: [] # Add list of HTTP/SOCKS5 proxies here
 
 reporting:
   formats:

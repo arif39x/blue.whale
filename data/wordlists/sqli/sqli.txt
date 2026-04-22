@@ -1,0 +1,18 @@
+# SQL Injection Payload Index
+This file serves as a directory for the modernized and categorized SQLi payloads.
+
+## Categorized Wordlists:
+1. Error-Based:     data/wordlists/sqli/error.txt
+2. Union-Based:     data/wordlists/sqli/union.txt
+3. Boolean Blind:   data/wordlists/sqli/blind_boolean.txt
+4. Time Blind:      data/wordlists/sqli/blind_time.txt
+5. Out-of-Band:     data/wordlists/sqli/oob.txt
+6. WAF Bypass:      data/wordlists/sqli/bypass.txt
+7. Polyglots:       data/wordlists/sqli/polyglots.txt
+
+## Improvements made:
+- Corrected MySQL comments (added trailing space '-- -').
+- Fixed Oracle syntax (added 'FROM DUAL' and specific error functions).
+- Removed MSSQL-specific procedures (xp_cmdshell) from MySQL sections.
+- Added modern error-based functions (ST_LatFromGeoHash).
+- Included cross-platform Polyglots.

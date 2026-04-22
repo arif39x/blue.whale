@@ -6,6 +6,7 @@ require (
 	github.com/refraction-networking/utls v1.8.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/net v0.38.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

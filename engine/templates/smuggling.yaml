@@ -1,0 +1,17 @@
+id: http-smuggling
+name: HTTP Request Smuggling (Desync)
+severity: critical
+requests:
+  - method: POST
+    path:
+      - "{{BaseURL}}"
+    payloads:
+      - "CL.TE"
+      - "TE.CL"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "Unrecognized"
+          - "malformed"
+          - "404 Not Found"

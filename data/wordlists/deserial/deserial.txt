@@ -1,0 +1,14 @@
+# Insecure Deserialization Payload Index
+This file serves as a directory for modernized and categorized deserialization payloads.
+
+## Categorized Wordlists:
+1. PHP Serialization:   data/wordlists/deserial/php.txt
+2. Java Serialization:  data/wordlists/deserial/java.txt
+3. Python & Node.js:    data/wordlists/deserial/python_node.txt
+
+## Improvements made:
+- Categorized by language (PHP, Java, Python, Node.js).
+- Included common Base64-encoded Java headers (rO0AB).
+- Added Python Pickle and YAML (PyYAML) exploitation strings.
+- Included Node.js `node-serialize` function wrapper payloads.
+- Added OOB triggers for blind detection in PHP.

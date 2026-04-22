@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -24,38 +26,20 @@ type InMessage struct {
 	// scan_start
 	Targets []string   `msgpack:"targets,omitempty"`
 	Config  ScanConfig `msgpack:"config,omitempty"`
-	// fuzz_job
-	JobID   string `msgpack:"job_id,omitempty"`
-	URL     string `msgpack:"url,omitempty"`
-	Method  string `msgpack:"method,omitempty"`
-	Payload string `msgpack:"payload,omitempty"`
-	Param   string `msgpack:"param,omitempty"`
+	// payload_response
+	Param    string   `msgpack:"param,omitempty"`
+	Payloads []string `msgpack:"payloads,omitempty"`
 }
 
 type ScanConfig struct {
-	Workers  int    `msgpack:"workers"`
-	MaxDepth int    `msgpack:"max_depth"`
-	UA       string `msgpack:"ua"`
-	RPS      int    `msgpack:"rps"`
-	Timeout  int    `msgpack:"timeout_seconds"`
-}
-
-type NodeMsg struct {
-	Type   string   `msgpack:"type"`
-	URL    string   `msgpack:"url"`
-	Params []string `msgpack:"params"`
-	Score  float64  `msgpack:"score"`
-	Depth  int      `msgpack:"depth"`
-}
-
-type FuzzResultMsg struct {
-	Type      string `msgpack:"type"`
-	JobID     string `msgpack:"job_id"`
-	Status    int    `msgpack:"status"`
-	BodyLen   int64  `msgpack:"body_len"`
-	TimingMs  int64  `msgpack:"timing_ms"`
-	Reflect   bool   `msgpack:"reflect"`
-	TimingHit bool   `msgpack:"timing_hit"`
+	Workers     int      `msgpack:"workers"`
+	MaxDepth    int      `msgpack:"max_depth"`
+	UAs         []string `msgpack:"user_agents"`
+	RPS         float64  `msgpack:"rps"`
+	Timeout     int      `msgpack:"timeout_seconds"`
+	StealthMode bool     `msgpack:"stealth_mode"`
+	Jitter      bool     `msgpack:"jitter"`
+	Proxies     []string `msgpack:"proxies"`
 }
 
 type StatusMsg struct {
@@ -73,6 +57,16 @@ type ScanDoneMsg struct {
 type ErrorMsg struct {
 	Type    string `msgpack:"type"`
 	Message string `msgpack:"message"`
+}
+
+type PayloadRequestMsg struct {
+	Type  string `msgpack:"type"`
+	Param string `msgpack:"param"`
+}
+
+type PayloadResponseMsg struct {
+	Type     string   `msgpack:"type"`
+	Payloads []string `msgpack:"payloads"`
 }
 
 type EngineInfo struct {
@@ -144,6 +138,7 @@ func extractLinks(base *url.URL, body io.Reader) []string {
 type crawler struct {
 	client       *RawClient
 	cfg          ScanConfig
+	sm           *StateMachine
 	seen         sync.Map
 	queue        chan crawlJob
 	wg           sync.WaitGroup
@@ -171,14 +166,29 @@ func (c *crawler) run(seeds []string) {
 
 	var rateTicker <-chan time.Time
 	if c.cfg.RPS > 0 {
-		ticker := time.NewTicker(time.Second / time.Duration(c.cfg.RPS))
+		interval := time.Duration(float64(time.Second) / c.cfg.RPS)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		rateTicker = ticker.C
 	}
 
-	c.wg.Add(1)
+	// 1. Start Workers
+	workerWg := sync.WaitGroup{}
+	for i := 0; i < workers; i++ {
+		workerWg.Add(1)
+		go func() {
+			defer workerWg.Done()
+			for job := range c.queue {
+				if rateTicker != nil {
+					<-rateTicker
+				}
+				c.visit(job)
+			}
+		}()
+	}
+
+	// 2. Queue Manager
 	go func() {
-		defer c.wg.Done()
 		for range c.queueManager {
 			c.pendingMu.Lock()
 			batch := c.pendingJobs
@@ -190,33 +200,24 @@ func (c *crawler) run(seeds []string) {
 					continue
 				}
 				c.total.Add(1)
+				c.wg.Add(1) // Track every job
 				c.queue <- job
 			}
 		}
 	}()
 
-	for i := 0; i < workers; i++ {
-		c.wg.Add(1)
-		go func() {
-			defer c.wg.Done()
-			for job := range c.queue {
-				if rateTicker != nil {
-					<-rateTicker
-				}
-				c.visit(job)
-			}
-		}()
-	}
-
+	// 3. Initial Seeds
 	for _, seed := range seeds {
 		c.enqueue(crawlJob{rawURL: seed, depth: 0})
 	}
 
-	go func() {
-		c.wg.Wait()
-		close(c.queueManager)
-		close(c.queue)
-	}()
+	// 4. Wait for all jobs to finish
+	c.wg.Wait()
+	
+	// 5. Shutdown workers
+	close(c.queue)
+	workerWg.Wait()
+	close(c.queueManager)
 }
 
 func (c *crawler) enqueue(job crawlJob) {
@@ -230,11 +231,26 @@ func (c *crawler) enqueue(job crawlJob) {
 }
 
 func (c *crawler) visit(job crawlJob) {
-	defer c.wg.Done()
+	defer c.wg.Done() // Signal job completion
 
 	resp, err := c.client.Do("GET", job.rawURL, nil, nil)
 	if err != nil {
+		if job.depth == 0 {
+			emit(ErrorMsg{
+				Type:    "error",
+				Message: fmt.Sprintf("Failed to fetch seed URL %s: %v", job.rawURL, err),
+			})
+		}
 		return
+	}
+
+	if resp.StatusCode >= 400 {
+		if job.depth == 0 {
+			emit(ErrorMsg{
+				Type:    "error",
+				Message: fmt.Sprintf("Seed URL %s returned status %d", job.rawURL, resp.StatusCode),
+			})
+		}
 	}
 
 	c.crawled.Add(1)
@@ -245,35 +261,61 @@ func (c *crawler) visit(job crawlJob) {
 		params = append(params, k)
 	}
 
-	emit(NodeMsg{
-		Type:   "node",
-		URL:    job.rawURL,
-		Params: params,
-		Score:  1.0, // simplified score
-		Depth:  job.depth,
-	})
-// Emit periodic progress
-crawled := c.crawled.Load()
-if crawled%5 == 0 {
-	total := c.total.Load()
-	var pct int
-	if total > 0 {
-		pct = int(crawled * 100 / total)
-	}
-	emit(StatusMsg{
-		Type:     "status",
-		Phase:    "CRAWLING",
-		Detail:   fmt.Sprintf("Scanning: %s", job.rawURL),
-		Progress: pct,
-	})
-}
+	// Fingerprint tech stack
+	tech := Fingerprint(resp.Header, string(resp.Body))
 
+	// Move logic to StateMachine
+	c.sm.ProcessNode(job.rawURL, params, tech)
+
+	// Shadow API Excavator logic
+	uLower := strings.ToLower(u.Path)
+	if strings.Contains(uLower, "/api") || strings.Contains(uLower, "/v") {
+		// Enqueue documentation endpoints
+		docs := []string{"/swagger-ui.html", "/v2/api-docs", "/v3/api-docs", "/openapi.json", "/swagger.json"}
+		for _, d := range docs {
+			docURL := *u
+			docURL.Path = d
+			docURL.RawQuery = ""
+			c.enqueue(crawlJob{rawURL: docURL.String(), depth: job.depth})
+		}
+
+		// API Versioning mutation
+		re := regexp.MustCompile(`/v(\d+)/`)
+		if matches := re.FindStringSubmatch(u.Path); len(matches) > 1 {
+			currentVer := matches[1]
+			for _, ver := range []string{"1", "2", "3"} {
+				if ver == currentVer {
+					continue
+				}
+				newPath := strings.Replace(u.Path, "/v"+currentVer+"/", "/v"+ver+"/", 1)
+				newURL := *u
+				newURL.Path = newPath
+				c.enqueue(crawlJob{rawURL: newURL.String(), depth: job.depth})
+			}
+		}
+	}
+
+	// Emit periodic progress
+	crawled := c.crawled.Load()
+	total := c.total.Load()
+	if crawled%5 == 0 || crawled == total {
+		var pct int
+		if total > 0 {
+			pct = int(crawled * 100 / total)
+		}
+		emit(StatusMsg{
+			Type:     "status",
+			Phase:    "CRAWLING",
+			Detail:   fmt.Sprintf("Progress: %d/%d URLs | Current: %s", crawled, total, job.rawURL),
+			Progress: pct,
+		})
+	}
 
 	maxDepth := c.cfg.MaxDepth
 	if maxDepth <= 0 {
 		maxDepth = 3
 	}
-	
+
 	ct := resp.Header.Get("Content-Type")
 	isHTML := strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml")
 
@@ -293,46 +335,13 @@ if crawled%5 == 0 {
 	}
 }
 
-func handleFuzzJob(client *RawClient, msg InMessage) {
-	targetURL := msg.URL
-	if msg.Param != "" && msg.Payload != "" {
-		u, err := url.Parse(msg.URL)
-		if err == nil {
-			q := u.Query()
-			q.Set(msg.Param, msg.Payload)
-			u.RawQuery = q.Encode()
-			targetURL = u.String()
-		}
-	}
-
-	method := msg.Method
-	if method == "" {
-		method = "GET"
-	}
-
-	resp, err := client.Do(method, targetURL, nil, nil)
-	if err != nil {
-		emit(ErrorMsg{Type: "error", Message: fmt.Sprintf("fuzz_job request error: %v", err)})
-		return
-	}
-
-	bodyStr := string(resp.Body)
-	reflect := msg.Payload != "" && strings.Contains(bodyStr, msg.Payload)
-	timingMs := resp.Timing.Milliseconds()
-	timingHit := timingMs > 4500
-
-	emit(FuzzResultMsg{
-		Type:      "fuzz_result",
-		JobID:     msg.JobID,
-		Status:    resp.StatusCode,
-		BodyLen:   int64(len(resp.Body)),
-		TimingMs:  timingMs,
-		Reflect:   reflect,
-		TimingHit: timingHit,
-	})
-}
-
 func serve(socketPath string) {
+	// Load templates first
+	templates, err := LoadTemplates("engine/templates")
+	if err != nil {
+		log.Printf("Warning: failed to load templates: %v", err)
+	}
+
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		log.Fatalf("Failed to connect to socket: %v", err)
@@ -346,10 +355,9 @@ func serve(socketPath string) {
 	dec := msgpack.NewDecoder(conn)
 
 	var (
-		client     *RawClient
-		fuzzWg     sync.WaitGroup
-		fuzzSem    chan struct{}
-		crawlDone  chan struct{}
+		client    *RawClient
+		sm        *StateMachine
+		crawlDone chan struct{}
 	)
 
 	for {
@@ -365,47 +373,57 @@ func serve(socketPath string) {
 		switch msg.Type {
 		case "scan_start":
 			cfg := msg.Config
+			rl := NewHostRateLimiter()
+			rl.Jitter = cfg.Jitter
+
+			jar, _ := cookiejar.New(nil)
+
 			client = &RawClient{
-				Timeout:   time.Duration(cfg.Timeout) * time.Second,
-				UserAgent: cfg.UA,
+				Timeout:     time.Duration(cfg.Timeout) * time.Second,
+				UserAgents:  cfg.UAs,
+				RateLimiter: rl,
+				StealthMode: cfg.StealthMode,
+				Proxies:     cfg.Proxies,
+				Jar:         jar,
 			}
 			if client.Timeout == 0 {
 				client.Timeout = 30 * time.Second
 			}
 
-			fuzzSem = make(chan struct{}, max(cfg.Workers, 10))
+			sm = NewStateMachine(templates, client)
+
 			emit(StatusMsg{Type: "status", Phase: "crawling", Progress: 0})
 
 			crawlDone = make(chan struct{})
-			c := &crawler{client: client, cfg: cfg}
+			c := &crawler{client: client, cfg: cfg, sm: sm}
 			go func() {
 				c.run(msg.Targets)
 				close(crawlDone)
+				
+				emit(StatusMsg{Type: "status", Phase: "SCANNING", Progress: 0, Detail: "Crawler finished. Starting scan phase..."})
+				sm.Scan()
+
 				emit(ScanDoneMsg{
 					Type:       "scan_done",
 					TotalNodes: c.crawled.Load(),
 				})
 			}()
 
-		case "fuzz_job":
-			if client == nil {
-				client = &RawClient{Timeout: 30 * time.Second}
-				fuzzSem = make(chan struct{}, 10)
+		case "payload_response":
+			if sm != nil {
+				sm.mu.Lock()
+				if ch, ok := sm.payloadRequests[msg.Param]; ok {
+					ch <- msg.Payloads
+					delete(sm.payloadRequests, msg.Param)
+				}
+				sm.mu.Unlock()
 			}
-			fuzzWg.Add(1)
-			fuzzSem <- struct{}{}
-			go func(m InMessage) {
-				defer fuzzWg.Done()
-				defer func() { <-fuzzSem }()
-				handleFuzzJob(client, m)
-			}(msg)
 
 		default:
 			emit(ErrorMsg{Type: "error", Message: fmt.Sprintf("unknown type: %s", msg.Type)})
 		}
 	}
 
-	fuzzWg.Wait()
 	if crawlDone != nil {
 		<-crawlDone
 	}
@@ -432,7 +450,7 @@ func main() {
 	case "info":
 		info := EngineInfo{
 			Name:    "whale-engine",
-			Version: "3.0.0-optimized",
+			Version: "4.0.0-template-based",
 			OS:      runtime.GOOS,
 			Arch:    runtime.GOARCH,
 		}
@@ -440,7 +458,7 @@ func main() {
 		os.Stdout.Write(b)
 
 	case "check":
-		fmt.Printf("whale-engine-raw ok - %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("whale-engine ok - %s/%s\n", runtime.GOOS, runtime.GOARCH)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
@@ -450,12 +468,5 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("Blue Whale Engine (Raw Protocol Mode)\nUsage: whale-engine <command> [args]")
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	fmt.Println("Blue Whale Engine (Autonomous Mode)\nUsage: whale-engine <command> [args]")
 }

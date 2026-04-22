@@ -1,0 +1,20 @@
+id: sqli-error-based
+name: Error-based SQL Injection
+severity: high
+requests:
+  - method: GET
+    path: ["{{BaseURL}}"]
+    payloads:
+      - "'"
+      - "\""
+      - "';"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "SQL syntax"
+          - "mysql_fetch_array"
+          - "ORA-00933"
+          - "PostgreSQL query failed"
+          - "SQLite3::Exception"
+          - "unclosed quotation mark after the character string"

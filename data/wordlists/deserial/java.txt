@@ -1,0 +1,13 @@
+# Java Deserialization Payloads (Base64)
+
+# Common Headers
+rO0AB (Standard Serialized Object)
+rO0ABXNy (Serialized Object + Class Desc)
+
+# Common Gadget Chains (Base64 start markers)
+rO0ABXNyABdqYXZhLnV0aWwuUHJpb3JpdHlRdWV1ZQ== (PriorityQueue)
+rO0ABXNyABFqYXZhLnV0aWwuSGFzaFNldA== (HashSet)
+rO0ABXNyACpvcmcuYXBhY2hlLmNvbW1vbnMuY29sbGVjdGlvbnMua2V5dmFsdWUuVGllZE1hcEVudHJ5 (TiedMapEntry)
+
+# XML (XStream / XMLDecoder)
+<object class="java.lang.ProcessBuilder"><array class="java.lang.String" length="1"><void index="0"><string>id</string></void></array><void method="start"/></object>

@@ -1,0 +1,14 @@
+# IDOR (Insecure Direct Object Reference) Index
+This file serves as a directory for modernized and categorized IDOR manipulation techniques.
+
+## Categorized Techniques:
+1. Basic Manipulation:  data/wordlists/idor/basic.txt
+2. Parameter Pollution: data/wordlists/idor/pollution.txt
+3. Headers & Methods:    data/wordlists/idor/headers_methods.txt
+
+## Improvements made:
+- Shifted focus from static "payloads" to logical "manipulations".
+- Included HTTP Parameter Pollution (HPP) patterns.
+- Added header-based identity spoofing (X-User-ID, etc.).
+- Included RESTful method overriding (PUT/DELETE) and API version downgrading.
+- Added common path traversal patterns in IDs.

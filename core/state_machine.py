@@ -52,7 +52,7 @@ class FuzzJob:
 
 
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}")
-_NUMERIC_ID_RE = re.compile(r"(?<![a-z_/])(\d{1,10})(?![a-z_/])", re.IGNORECASE)
+_NUMERIC_ID_RE = re.compile(r"\b\d{1,10}\b", re.IGNORECASE)
 
 # DB error signatures -> DB type
 _DB_ERRORS: list[tuple[re.Pattern[str], str]] = [

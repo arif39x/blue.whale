@@ -1,0 +1,15 @@
+# SSRF Payload Index
+This file serves as a directory for modernized and categorized SSRF payloads.
+
+## Categorized Wordlists:
+1. Internal Discovery:  data/wordlists/ssrf/internal.txt
+2. Cloud Metadata:     data/wordlists/ssrf/cloud.txt
+3. Protocol Payloads:   data/wordlists/ssrf/protocols.txt
+4. Bypass Techniques:   data/wordlists/ssrf/bypass.txt
+
+## Improvements made:
+- Categorized by exploitation target (Internal, Cloud, Protocols).
+- Included modern Cloud Metadata endpoints (AWS, GCP, Azure).
+- Added complex protocol payloads (Gopher, Dict) for service interaction.
+- Included advanced IP encoding and DNS rebinding bypasses.
+- Standardized scheme handling (HTTP/HTTPS/FILE).

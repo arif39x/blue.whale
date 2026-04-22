@@ -1,0 +1,14 @@
+# XXE (XML External Entity) Payload Index
+This file serves as a directory for modernized and categorized XXE payloads.
+
+## Categorized Wordlists:
+1. Basic File Disclosure: data/wordlists/xxe/basic.txt
+2. Blind / OOB Payloads:  data/wordlists/xxe/blind.txt
+3. Bypass & Advanced:     data/wordlists/xxe/bypass.txt
+
+## Improvements made:
+- Categorized by exploitation method (Disclosure, Blind, Bypass).
+- Included modern PHP wrappers for Base64 exfiltration.
+- Added XInclude payloads for cases where DOCTYPE is disabled.
+- Included SVG and SOAP-specific XXE formats.
+- Added OOB techniques using Parameter Entities.

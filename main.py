@@ -28,11 +28,16 @@ logger = logging.getLogger("whale")
 
 
 def main() -> None:
-    # sys.argv includes the script name itself real args start at index 1.
-    if len(sys.argv) > 1:
-        _launch_cli()
+    # CLI is now the only mode. If no args, show banner and help.
+    if len(sys.argv) == 1:
+        print(_BANNER)
+        from cli.commands import cli
+        try:
+            cli(args=["--help"], standalone_mode=True)
+        except SystemExit:
+            pass
     else:
-        _launch_gui()
+        _launch_cli()
 
 
 _BANNER = r"""\033[32m
@@ -53,36 +58,6 @@ def _launch_cli() -> None:
     from cli.commands import cli
 
     cli(standalone_mode=True)
-
-
-def _launch_gui() -> None:
-    try:
-        from PyQt6.QtGui import QIcon
-        from PyQt6.QtWidgets import QApplication
-
-        from gui.dashboard import Dashboard
-    except ImportError as exc:
-        logger.critical(
-            "PyQt6 is not installed. Install it with:\n"
-            "  pip install PyQt6\n"
-            "Or run in CLI mode:  python main.py --help\n\n"
-            "Original error: %s",
-            exc,
-        )
-        sys.exit(1)
-
-    app = QApplication(sys.argv)
-    app.setApplicationName("Blue Whale")
-    app.setApplicationVersion("1.0.0")
-    app.setOrganizationName("Blue Whale")
-
-    os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
-
-    window = Dashboard()
-    window.show()
-
-    logger.info("Blue Whale GUI launched.")
-    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

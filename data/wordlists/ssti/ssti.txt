@@ -1,0 +1,16 @@
+# SSTI Payload Index
+This file serves as a directory for modernized and categorized SSTI payloads.
+
+## Categorized Wordlists:
+1. Python (Jinja2, Mako):   data/wordlists/ssti/python.txt
+2. Java (SpEL, Freemarker):  data/wordlists/ssti/java.txt
+3. PHP (Smarty, Twig):      data/wordlists/ssti/php.txt
+4. Ruby (ERB, Slim):        data/wordlists/ssti/ruby.txt
+5. Node.js (Pug, EJS):      data/wordlists/ssti/nodejs.txt
+
+## Improvements made:
+- Categorized by backend engine (Python, Java, PHP, Ruby, Node.js).
+- Corrected environment-dependent subclass indices in Python.
+- Fixed unbalanced parentheses and syntax in Java SpEL/Freemarker.
+- Added robust Node.js RCE strings using `execSync`.
+- Organized into identification vs exploitation phases.

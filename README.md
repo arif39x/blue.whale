@@ -2,91 +2,102 @@
 
 ![Blue Whale Logo](assets/Logo.png)
 
-> **Blue Whale** is a high-performance vulnerability discovery engine designed for advanced penetration testing.
+**Blue Whale** is a high performance fast vulnerability finding tool for web-apps (like SQLi, XSS, and SSRF).
 
 ---
 
-## Blue Whale Updates
+## Features
 
-I recently completed a massive architectural overhaul, moving from a standard hybrid scanner into a deterministic, state-of-the-art vulnerability engine.
-
-### Evolution Comparison
-
-| Feature                | Legacy (v2.0)                             | Current (v3.0 - Raw Protocol)                                 |
-| :--------------------- | :---------------------------------------- | :------------------------------------------------------------ |
-| **IPC Mechanism**      | JSON over STDIN/STDOUT Pipes              | **Unix Domain Sockets (UDS) + MessagePack**                   |
-| **Network Stack**      | Go `net/http` (Standard)                  | **Raw TCP Sockets + `utls`**                                  |
-| **TLS Fingerprinting** | Standard Go Handshake (Easily Blocked)    | **JA3/JA4 Spoofing** (Mimics Chrome 120)                      |
-| **Protocol Control**   | Managed by library (Normalizes malformed) | **Byte-Level Control** (Enables Smuggling/Malformed requests) |
-| **Scanning Mode**      | Signature-based (Regex)                   | **Stateful, Differential & OOB (OAST)**                       |
-| **OAST Support**       | None (Blind to async vulns)               | **Integrated Async DNS/HTTP Listener**                        |
-| **Performance**        | I/O Bound (Serialization lag)             | **Network Bound** (Zero-copy binary IPC)                      |
-| **UI Aesthetic**       | Standard Modern Dark                      | **Dark Web Hacker Terminal** (Matrix-style)                   |
+- **Blazing Fast:** High-concurrency Go engine for crawling and testing.
+- **Payload Templates:** Simple YAML files in `engine/templates/` let you easily add new vulnerability patterns.
+- **WAF Evasion:** Automatically rotates User-Agents and headers to stay under the radar.
+- **Smart Tech Detection:** Detects stacks (PHP, React, etc.) and picks the most effective tests automatically.
+- **Deep Fuzzing:** Understands web parameters and tests them intelligently.
 
 ---
 
-## What I added.
+## 🛠️ Setup & Installation
 
-- **JA3/JA4 TLS Spoofing:** Bypass modern WAFs by mimicking browser fingerprints.
-- **Integrated OAST (Out-of-Band Testing):** Detect Blind SSRF, OOB SQLi, and XXE via our built-in responder.
-- **Raw Protocol Fuzzing:** Send deliberately malformed HTTP headers and frames to find deep protocol-level vulnerabilities like Request Smuggling.
-- **Hacker Terminal UI:** A completely overhauled GUI and CLI experience inspired by Matrix aesthetics and dark-web terminals.
+### Requirements
 
----
+- **Python 3.11+**
+- **Go 1.24+**
 
-## Requirements
+### Steps
 
-### System
+1. **Initialize Python Environment:**
 
-- **Python >= 3.11**
-- **Go >= 1.24**
-- `jq`, `bash`
-
-### Installation
-
-1. Create and activate a virtual environment:
    ```bash
    python -m venv venv
    source venv/bin/activate
-   ```
-2. Install dependencies:
-   ```bash
    pip install -r requirements.txt
    ```
-3. Bootstrap the engine (rebuilds the optimized Go core):
+
+2. **Setup Playwright (for DOM XSS testing):**
+
+   ```bash
+   playwright install chromium
+   ```
+
+3. **Build the Scanning Engine:**
    ```bash
    python main.py bootstrap --force
    ```
 
 ---
 
-## Usage
+## How to Use
 
-### GUI Mode
+### Basic Scan
+
+Fastest way to start scanning a target:
 
 ```bash
-python main.py
+python main.py scan --target http://example.com
 ```
 
-### CLI Mode
+### Advanced Scanning Profiles
+
+- **Aggressive:** Higher speed and deeper testing.
+  ```bash
+  python main.py scan -t http://example.com --profile aggressive
+  ```
+- **Stealth:** Slower speed with randomized delays to bypass WAFs.
+  ```bash
+  python main.py scan -t http://example.com --profile stealth
+  ```
+
+### Custom Headers
+
+Provide authorization tokens or session cookies:
 
 ```bash
-# 1. Start a high-performance scan
-python main.py scan --target <target> --profile aggressive
-
-# 2. Authenticated scan with stealth mode
-python main.py scan --target <target> --profile stealth -H "Header: value"
-
-# 3. View OAST identifiers and real-time hits
-# (OAST is automatically handled by the engine)
+python main.py scan -t http://example.com -H "Cookie: session=123"
 ```
 
 ---
 
-## Configuration
+## ⌨️ Command Reference
 
-Runtime parameters are located in `config/settings.yaml`. You can configure local listeners and stealth parameters there.
+### Scan Options
+
+| Command        | Description                                |
+| :------------- | :----------------------------------------- |
+| `-t, --target` | The URL of the target website              |
+| `--profile`    | `standard`, `aggressive`, or `stealth`     |
+| `--rpm`        | Set a specific speed (Requests Per Minute) |
+| `--format`     | Output format (e.g., `pdf`, `json`)        |
+
+### Management
+
+| Command                                 | Description                            |
+| :-------------------------------------- | :------------------------------------- |
+| `python main.py report <results.jsonl>` | Convert scan results into a PDF report |
+| `python main.py bootstrap --force`      | Rebuild the internal Go engine binary  |
+| `python main.py paths`                  | Check and verify local system paths    |
 
 ---
 
-_Disclaimer: Blue Whale is intended for authorized security testing only. The author is not responsible for any misuse of this tool._
+## Disclaimer
+
+Blue Whale is for **authorized security testing only**. Do not use it on systems you do not have explicit permission to test. The author is not responsible for any misuse or damage caused by this tool.

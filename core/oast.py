@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import socket
 from datetime import datetime
@@ -90,8 +91,40 @@ class DNSResponder(asyncio.DatagramProtocol):
             qname = str(record.q.qname).strip(".")
             
             # Identifier is the first label: <uuid>.oast.domain.com
-            identifier = qname.split(".")[0]
-            self.server.register_dns_event(addr[0], identifier, qname)
+            # OR exfiltration: <base64>.<uuid>.oast.domain.com
+            parts = qname.split(".")
+            identifier = "unknown"
+            exfiltrated = ""
+            
+            if len(parts) >= 2:
+                # Check if first part is base64 (approximate check since DNS is case-insensitive)
+                try:
+                    prefix = parts[0]
+                    # Try hex first as it is safer for DNS
+                    try:
+                        import binascii
+                        decoded = binascii.unhexlify(prefix).decode(errors="ignore")
+                        if any(c.isprintable() for c in decoded):
+                            exfiltrated = f" [EXFIL: {decoded}]"
+                    except:
+                        # Fallback to b64
+                        decoded = base64.b64decode(prefix + "===").decode(errors="ignore")
+                        if any(c.isprintable() for c in decoded):
+                            exfiltrated = f" [EXFIL: {decoded}]"
+                except:
+                    pass
+                
+                # The identifier is usually the part before the known OAST domain
+                domain_parts = self.server.domain.split(".")
+                for i, p in enumerate(parts):
+                    if p == domain_parts[0]:
+                        if i > 0:
+                            identifier = parts[i-1]
+                        break
+            else:
+                identifier = parts[0]
+
+            self.server.register_dns_event(addr[0], identifier, qname + exfiltrated)
 
             reply = record.reply()
             reply.add_answer(RR(qname, QTYPE.A, rdata=A(self.server.public_ip), ttl=60))

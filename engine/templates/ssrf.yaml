@@ -1,13 +1,8 @@
 id: ssrf-oast
-name: SSRF / OAST Probe
+name: SSRF OAST Probe
 severity: high
 requests:
   - method: GET
-    path: ["{{BaseURL}}"]
     payloads:
-      - "http://{{OAST_DOMAIN}}/"
-    matchers:
-      - type: word
-        part: body
-        words:
-          - "OAST_HIT" # This is a placeholder; real OAST uses out-of-band correlation
+      - "http://{{oast_id}}.{{oast_domain}}/"
+    # Evidence is handled by the OAST server callbacks

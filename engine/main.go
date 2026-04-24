@@ -342,7 +342,16 @@ func serve(socketPath string) {
 		log.Printf("Warning: failed to load templates: %v", err)
 	}
 
-	conn, err := net.Dial("unix", socketPath)
+	var conn net.Conn
+	for i := 0; i < 10; i++ {
+		conn, err = net.Dial("unix", socketPath)
+		if err == nil {
+			break
+		}
+		log.Printf("Waiting for socket %s (attempt %d/10)...", socketPath, i+1)
+		time.Sleep(1 * time.Second)
+	}
+
 	if err != nil {
 		log.Fatalf("Failed to connect to socket: %v", err)
 	}

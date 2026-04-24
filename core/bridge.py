@@ -177,4 +177,4 @@ class EngineBridge:
         async for line in self._proc.stderr:
             decoded = line.decode(errors="replace").rstrip()
             if decoded:
-                logger.debug("[engine-stderr] %s", decoded)
+                logger.warning("[engine-stderr] %s", decoded)

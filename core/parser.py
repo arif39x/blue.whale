@@ -70,12 +70,18 @@ def _nuclei_line_to_finding(raw: dict) -> Finding | None:
     # Map a raw Nuclei JSON dict to a Finding model.
 
     try:
+        import shlex
         # Build a reproducible curl command as evidence
         method = raw.get("request", {}).get("method", "GET")
         url = raw.get("matched-at") or raw.get("host", "")
         headers = raw.get("request", {}).get("headers", {})
-        header_flags = " ".join(f'-H "{k}: {v}"' for k, v in headers.items())
-        curl_cmd = f"curl -s -X {method} {header_flags} '{url}'"
+        
+        header_flags = []
+        for k, v in headers.items():
+            header_flags.append(f'-H {shlex.quote(f"{k}: {v}")}')
+            
+        header_str = " ".join(header_flags)
+        curl_cmd = f"curl -s -X {shlex.quote(method)} {header_str} {shlex.quote(url)}"
 
         info = raw.get("info", {})
         return Finding(

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -58,26 +59,23 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		}
 
 		addr := net.JoinHostPort(u.Hostname(), port)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
-		defer cancel()
+		// We handle cancel() manually per iteration to avoid defer buildup in loop
 
 		var conn net.Conn
 		dialer := &net.Dialer{}
-		
+
 		// Proxy support with rotation
 		if len(c.Proxies) > 0 {
 			proxyAddr := c.Proxies[rand.Intn(len(c.Proxies))]
 			conn, err = dialer.DialContext(ctx, "tcp", proxyAddr)
-			if err != nil {
-				cancel()
-				continue // retry with different proxy
-			}
 		} else {
 			conn, err = dialer.DialContext(ctx, "tcp", addr)
 		}
 
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Connection failed (attempt %d): %v\n", i+1, err)
 			cancel()
 			continue
 		}
@@ -91,8 +89,23 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 				utls.HelloEdge_106,
 			}
 			profile := profiles[rand.Intn(len(profiles))]
-			uconn := utls.UClient(conn, &utls.Config{ServerName: u.Hostname(), InsecureSkipVerify: true}, profile)
+			uconn := utls.UClient(conn, &utls.Config{
+				ServerName:         u.Hostname(),
+				InsecureSkipVerify: true,
+				NextProtos:         []string{"http/1.1"},
+			}, profile)
+
+			// Force H1.1 by modifying the ALPN extension in the UClient before handshake
+			if err := uconn.BuildHandshakeState(); err == nil {
+				for _, ext := range uconn.Extensions {
+					if alpn, ok := ext.(*utls.ALPNExtension); ok {
+						alpn.AlpnProtocols = []string{"http/1.1"}
+					}
+				}
+			}
+
 			if err := uconn.Handshake(); err != nil {
+				fmt.Fprintf(os.Stderr, "[DEBUG] TLS handshake failed (attempt %d): %v\n", i+1, err)
 				conn.Close()
 				cancel()
 				continue
@@ -109,16 +122,25 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		var reqBuf bytes.Buffer
 		reqBuf.WriteString(fmt.Sprintf("%s %s HTTP/1.1\r\n", method, path))
 		reqBuf.WriteString(fmt.Sprintf("Host: %s\r\n", u.Host))
-		
-		var ua string
-		if len(c.UserAgents) > 0 {
-			ua = c.UserAgents[rand.Intn(len(c.UserAgents))]
+
+		// Priority: 1. Passed headers, 2. Config UAs, 3. Randomized browser UA
+		ua := headers["User-Agent"]
+		if ua == "" {
+			ua = headers["user-agent"]
 		}
-		
-		if ua != "" {
-			reqBuf.WriteString(fmt.Sprintf("User-Agent: %s\r\n", ua))
+
+		if ua == "" {
+			if len(c.UserAgents) > 0 {
+				ua = c.UserAgents[rand.Intn(len(c.UserAgents))]
+			}
+			if ua == "" || strings.Contains(ua, "Go-http-client") {
+				ua = getRandomUA()
+			}
 		}
-		
+
+		reqBuf.WriteString(fmt.Sprintf("User-Agent: %s\r\n", ua))
+		reqBuf.WriteString("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8\r\n")
+
 		if c.StealthMode {
 			reqBuf.WriteString(fmt.Sprintf("X-Forwarded-For: %d.%d.%d.%d\r\n", rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255)))
 			reqBuf.WriteString("Accept-Language: en-US,en;q=0.9\r\n")
@@ -138,8 +160,12 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 				reqBuf.WriteString(fmt.Sprintf("Cookie: %s\r\n", strings.Join(cookieStrs, "; ")))
 			}
 		}
-		
+
 		for k, v := range headers {
+			// Skip UA as it's already handled
+			if strings.ToLower(k) == "user-agent" {
+				continue
+			}
 			reqBuf.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
 		}
 
@@ -160,6 +186,7 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		// Parse response
 		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to read response (attempt %d): %v\n", i+1, err)
 			conn.Close()
 			cancel()
 			continue
@@ -169,9 +196,10 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) // 1MB limit
 		resp.Body.Close()
 		conn.Close()
-		cancel()
+		cancel() // Correct: cancel context after iteration
 
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to read body (attempt %d): %v\n", i+1, err)
 			continue
 		}
 
@@ -182,10 +210,25 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 
 		// Persistence: If blocked, rotate and retry
 		if (resp.StatusCode == 403 || resp.StatusCode == 429) && i < maxRetries-1 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Received status %d (attempt %d). Retrying...\n", resp.StatusCode, i+1)
 			if c.RateLimiter != nil {
 				c.RateLimiter.Block(u.Hostname(), 30*time.Second)
 			}
-			continue 
+			continue
+		}
+
+		if resp.StatusCode == 404 {
+			return &RawResponse{
+				StatusCode: resp.StatusCode,
+				Header:     resp.Header,
+				Body:       respBody,
+				Timing:     timing,
+			}, nil
+		}
+
+		if resp.StatusCode >= 400 && i < maxRetries-1 {
+			fmt.Fprintf(os.Stderr, "[DEBUG] Received status %d (attempt %d). Retrying...\n", resp.StatusCode, i+1)
+			continue
 		}
 
 		return &RawResponse{
@@ -221,7 +264,20 @@ func (c *RawClient) DoSmuggling(method, targetURL, smugglingType string, smuggle
 	defer conn.Close()
 
 	if u.Scheme == "https" {
-		uconn := utls.UClient(conn, &utls.Config{ServerName: u.Hostname(), InsecureSkipVerify: true}, utls.HelloChrome_120)
+		uconn := utls.UClient(conn, &utls.Config{
+			ServerName:         u.Hostname(),
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"http/1.1"},
+		}, utls.HelloChrome_120)
+
+		if err := uconn.BuildHandshakeState(); err == nil {
+			for _, ext := range uconn.Extensions {
+				if alpn, ok := ext.(*utls.ALPNExtension); ok {
+					alpn.AlpnProtocols = []string{"http/1.1"}
+				}
+			}
+		}
+
 		if err := uconn.Handshake(); err != nil {
 			return nil, err
 		}
@@ -236,6 +292,13 @@ func (c *RawClient) DoSmuggling(method, targetURL, smugglingType string, smuggle
 	var reqBuf bytes.Buffer
 	reqBuf.WriteString(fmt.Sprintf("%s %s HTTP/1.1\r\n", method, path))
 	reqBuf.WriteString(fmt.Sprintf("Host: %s\r\n", u.Host))
+
+	ua := getRandomUA()
+	if len(c.UserAgents) > 0 {
+		ua = c.UserAgents[rand.Intn(len(c.UserAgents))]
+	}
+	reqBuf.WriteString(fmt.Sprintf("User-Agent: %s\r\n", ua))
+	reqBuf.WriteString("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8\r\n")
 
 	if smugglingType == "CL.TE" {
 		// Frontend uses CL, Backend uses TE
@@ -273,13 +336,11 @@ func (c *RawClient) DoSmuggling(method, targetURL, smugglingType string, smuggle
 	}, nil
 }
 
-// SinglePacketAttack sends multiple requests' headers and releases the last byte simultaneously.
-func (c *RawClient) SinglePacketAttack(targetURL string, payloads []string) ([]*RawResponse, error) {
-	// Implementation for race condition testing (Phase 2.4)
-	// Simplified version: just send sequentially for now, but placeholder for the real thing
+func (c *RawClient) SinglePacketAttack(targetURL string, payloads []string, headers map[string]string) ([]*RawResponse, error) {
+
 	results := make([]*RawResponse, 0, len(payloads))
 	for _, p := range payloads {
-		res, err := c.Do("GET", targetURL+"?fuzz="+url.QueryEscape(p), nil, nil)
+		res, err := c.Do("GET", targetURL+"?fuzz="+url.QueryEscape(p), headers, nil)
 		if err == nil {
 			results = append(results, res)
 		}

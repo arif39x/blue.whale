@@ -26,7 +26,8 @@ def _load_user_agents() -> list[str]:
     ua_file = DATA_DIR / "user_agents.txt"
     if ua_file.exists():
         try:
-            return [l.strip() for l in ua_file.read_text().splitlines() if l.strip() and not l.startswith("#")]
+            uas = [l.strip() for l in ua_file.read_text().splitlines() if l.strip() and not l.startswith("#")]
+            if uas: return uas
         except Exception:
             pass
     return [
@@ -69,7 +70,7 @@ class BrowserController:
         self._browser = await playwright.chromium.launch(headless=True)
         self._context = await self._browser.new_context(
             user_agent=_load_user_agents()[0],
-            viewport={'width': 1920, 'height': 1080}
+            viewport={'width': 1280, 'height': 720}
         )
         if self.evasion_level != "none":
             await self._context.add_init_script(self.DEFAULT_STEALTH_JS)
@@ -179,10 +180,8 @@ class ScanExecutor:
         self._browser_queue = asyncio.Queue()
         self._results_queue = asyncio.Queue()
         
-        self._browser_controller = BrowserController(
-            evasion_level=evasion_level or cfg.get("stealth", {}).get("evasion_level", "high"),
-            brute_auth=self.brute_auth
-        )
+        self._evasion_level = evasion_level or cfg.get("stealth", {}).get("evasion_level", "high")
+        self._browser_workers_count = 3 # Scaling fix
 
         self._config = cfg
         self._cancelled = False
@@ -200,10 +199,12 @@ class ScanExecutor:
 
         await self._oast_server.start(self._config["oast"]["http_port"], self._config["oast"]["dns_port"])
         
-        workers = [
-            asyncio.create_task(self._browser_worker()),
-            asyncio.create_task(self._bridge_worker())
-        ]
+        workers = [asyncio.create_task(self._bridge_worker())]
+        for _ in range(self._browser_workers_count):
+            workers.append(asyncio.create_task(self._browser_worker()))
+            
+        # OAST polling loop (Loss fix)
+        workers.append(asyncio.create_task(self._oast_poller()))
 
         try:
             while not self._cancelled:
@@ -216,17 +217,24 @@ class ScanExecutor:
                 
                 if msg_type in ("loot", "vulnerability"):
                     evidence = str(msg.get("data", "")) + str(msg.get("evidence", ""))
-                    for token in re.findall(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}", evidence):
-                        if token not in self._pivoted_sessions:
-                            self._pivoted_sessions.add(token)
-                            logger.warning("[PIVOT] New session detected; spawning authenticated context.")
-                            yield {
-                                "type": "privilege_escalation",
-                                "subtype": "pivot_spawn",
-                                "token": f"{token[:15]}...",
-                                "source_url": msg.get("url")
-                            }
-                            await self._browser_queue.put((msg.get("url"), token))
+                    # Generalized token detection fix
+                    patterns = [
+                        r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}", # JWT
+                        r"session(?:id)?=([A-Za-z0-9]{20,})", # Generic session cookies
+                        r"Bearer\s+([A-Za-z0-9\-\._~+/=]{20,})", # Bearer tokens
+                    ]
+                    for pattern in patterns:
+                        for token in re.findall(pattern, evidence):
+                            if token not in self._pivoted_sessions:
+                                self._pivoted_sessions.add(token)
+                                logger.warning("[PIVOT] New token detected; spawning authenticated context.")
+                                yield {
+                                    "type": "privilege_escalation",
+                                    "subtype": "pivot_spawn",
+                                    "token": f"{token[:15]}...",
+                                    "source_url": msg.get("url")
+                                }
+                                await self._browser_queue.put((msg.get("url"), token))
 
                 yield msg
                 self._results_queue.task_done()
@@ -239,8 +247,30 @@ class ScanExecutor:
             for t in workers: t.cancel()
             await self._oast_server.stop()
 
+    async def _oast_poller(self):
+        """Periodically check for OAST events independent of bridge messages."""
+        last_idx = 0
+        while True:
+            while last_idx < len(self._oast_server.events):
+                ev = self._oast_server.events[last_idx]
+                last_idx += 1
+                await self._results_queue.put({
+                    "type": "oast_hit", "protocol": ev.protocol, 
+                    "identifier": ev.identifier, "remote_addr": ev.remote_addr, 
+                    "data": ev.data
+                })
+            await asyncio.sleep(2)
+
     async def _bridge_worker(self):
         try:
+            headers = {}
+            if self.header:
+                if ":" in self.header:
+                    k, v = self.header.split(":", 1)
+                    headers[k.strip()] = v.strip()
+                else:
+                    logger.warning("Invalid header format: %s", self.header)
+
             async with EngineBridge() as bridge:
                 self._current_bridge = bridge
                 await bridge.send({
@@ -250,6 +280,7 @@ class ScanExecutor:
                         "workers": self._config["engine"]["workers"],
                         "max_depth": self._config["engine"]["max_depth"],
                         "user_agents": _load_user_agents(),
+                        "headers": headers,
                         "rps": self.rps,
                         "timeout_seconds": self.timeout,
                         "stealth_mode": self._config["stealth"]["rotate_user_agents"],
@@ -258,17 +289,7 @@ class ScanExecutor:
                     },
                 })
 
-                last_oast_idx = 0
                 async for msg in bridge.stream():
-                    while last_oast_idx < len(self._oast_server.events):
-                        ev = self._oast_server.events[last_oast_idx]
-                        last_oast_idx += 1
-                        await self._results_queue.put({
-                            "type": "oast_hit", "protocol": ev.protocol, 
-                            "identifier": ev.identifier, "remote_addr": ev.remote_addr, 
-                            "data": ev.data
-                        })
-
                     if msg.get("type") == "payload_request":
                         p = msg.get("param", "")
                         payloads = []
@@ -285,16 +306,17 @@ class ScanExecutor:
 
     async def _browser_worker(self):
         async with async_playwright() as p:
-            await self._browser_controller.start(p)
+            controller = BrowserController(evasion_level=self._evasion_level, brute_auth=self.brute_auth)
+            await controller.start(p)
             try:
                 while True:
                     url, token = await self._browser_queue.get()
-                    for f in await self._browser_controller.scan_url(url, token):
+                    for f in await controller.scan_url(url, token):
                         if f["type"] == "vulnerability": self._vulnerabilities.append(f)
                         await self._results_queue.put(f)
                     self._browser_queue.task_done()
             except asyncio.CancelledError:
-                await self._browser_controller.close()
+                await controller.close()
 
     async def cancel(self) -> None:
         self._cancelled = True

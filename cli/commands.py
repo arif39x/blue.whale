@@ -126,8 +126,8 @@ def cli() -> None:
 @click.option(
     "--format",
     "fmt",
-    default="json",
-    type=click.Choice(["json", "csv", "pdf"]),
+    default="html",
+    type=click.Choice(["json", "csv", "pdf", "html"]),
     show_default=True,
 )
 @click.option(
@@ -389,19 +389,24 @@ def cmd_scan(
     _print_summary(parser)
 
     if not dry_run:
+        # Always export JSONL for raw data persistence
+        json_path = out_dir / f"whale_{executor.job_id}.jsonl"
+        parser.export_jsonl(json_path)
+        console.print(f"\n  [cyan]Raw JSONL results[/cyan] -> {json_path}")
+
+        # Always export HTML for human readability
         reporter = Reporter(target=target, job_id=executor.job_id)
         reporter.load_from_parser(parser)
+        html_path = reporter.export_html(out_dir)
+        console.print(f"  [cyan]HTML report[/cyan]       -> {html_path}")
 
-        if fmt == "json":
-            path = parser.export_jsonl(out_dir / f"whale_{executor.job_id}.jsonl")
-            console.print(f"\n  [cyan]JSONL export[/cyan] -> {path}")
-        elif fmt == "csv":
+        if fmt == "csv":
             path = parser.export_csv(out_dir / f"whale_{executor.job_id}.csv")
-            console.print(f"\n  [cyan]CSV export[/cyan] -> {path}")
+            console.print(f"  [cyan]CSV export[/cyan]        -> {path}")
         elif fmt == "pdf":
             path = reporter.export_pdf(out_dir)
             if path:
-                console.print(f"\n  [cyan]PDF report[/cyan] -> {path}")
+                console.print(f"  [cyan]PDF report[/cyan]        -> {path}")
             else:
                 console.print(
                     "\n  [red]PDF generation failed (install weasyprint).[/red]"

@@ -25,12 +25,14 @@ type RawResponse struct {
 }
 
 type RawClient struct {
-	Timeout     time.Duration
-	UserAgents  []string
-	RateLimiter *HostRateLimiter
-	Proxies     []string
-	StealthMode bool
-	Jar         http.CookieJar
+	Timeout          time.Duration
+	UserAgents       []string
+	RateLimiter      *HostRateLimiter
+	RPS              float64
+	Proxies          []string
+	StealthMode      bool
+	Jar              http.CookieJar
+	CooldownDuration time.Duration
 }
 
 func (c *RawClient) Do(method, targetURL string, headers map[string]string, body []byte) (*RawResponse, error) {
@@ -46,7 +48,11 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 
 	for i := 0; i < maxRetries; i++ {
 		if c.RateLimiter != nil {
-			c.RateLimiter.Wait(u.Hostname(), 10)
+			rps := c.RPS
+			if rps <= 0 {
+				rps = 5
+			}
+			c.RateLimiter.Wait(u.Hostname(), int(rps))
 		}
 
 		port := u.Port()
@@ -77,6 +83,11 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Connection failed (attempt %d): %v\n", i+1, err)
 			cancel()
+			if c.RateLimiter != nil && c.CooldownDuration > 0 {
+				fmt.Fprintf(os.Stderr, "[STEALTH] Network error detected. Entering cooldown for %s...\n", u.Hostname())
+				c.RateLimiter.Block(u.Hostname(), c.CooldownDuration)
+			}
+			time.Sleep(time.Duration(i+1) * time.Second) // Back-off
 			continue
 		}
 
@@ -108,6 +119,11 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 				fmt.Fprintf(os.Stderr, "[DEBUG] TLS handshake failed (attempt %d): %v\n", i+1, err)
 				conn.Close()
 				cancel()
+				if c.RateLimiter != nil && c.CooldownDuration > 0 {
+					fmt.Fprintf(os.Stderr, "[STEALTH] Handshake error detected. Entering cooldown for %s...\n", u.Hostname())
+					c.RateLimiter.Block(u.Hostname(), c.CooldownDuration)
+				}
+				time.Sleep(time.Duration(i+1) * time.Second) // Back-off
 				continue
 			}
 			conn = uconn
@@ -140,10 +156,17 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 
 		reqBuf.WriteString(fmt.Sprintf("User-Agent: %s\r\n", ua))
 		reqBuf.WriteString("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8\r\n")
+		reqBuf.WriteString("Accept-Encoding: gzip, deflate, br\r\n")
+		reqBuf.WriteString("Accept-Language: en-US,en;q=0.9\r\n")
+		reqBuf.WriteString("Connection: keep-alive\r\n")
+		reqBuf.WriteString("Upgrade-Insecure-Requests: 1\r\n")
+		reqBuf.WriteString("Sec-Fetch-Dest: document\r\n")
+		reqBuf.WriteString("Sec-Fetch-Mode: navigate\r\n")
+		reqBuf.WriteString("Sec-Fetch-Site: none\r\n")
+		reqBuf.WriteString("Sec-Fetch-User: ?1\r\n")
 
 		if c.StealthMode {
 			reqBuf.WriteString(fmt.Sprintf("X-Forwarded-For: %d.%d.%d.%d\r\n", rand.Intn(255), rand.Intn(255), rand.Intn(255), rand.Intn(255)))
-			reqBuf.WriteString("Accept-Language: en-US,en;q=0.9\r\n")
 		} else {
 			reqBuf.WriteString("X-Forwarded-For: 127.0.0.1\r\n")
 			reqBuf.WriteString("X-Client-IP: 127.0.0.1\r\n")
@@ -212,8 +235,15 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		if (resp.StatusCode == 403 || resp.StatusCode == 429) && i < maxRetries-1 {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Received status %d (attempt %d). Retrying...\n", resp.StatusCode, i+1)
 			if c.RateLimiter != nil {
-				c.RateLimiter.Block(u.Hostname(), 30*time.Second)
+				duration := c.CooldownDuration
+				if duration == 0 {
+					duration = 30 * time.Second
+				}
+				fmt.Fprintf(os.Stderr, "[STEALTH] Blocking status %d detected. Entering cooldown for %s...\n", resp.StatusCode, u.Hostname())
+				c.RateLimiter.Block(u.Hostname(), duration)
 			}
+			// Wait before the next retry loop iteration
+			time.Sleep(time.Duration(2+rand.Intn(5)) * time.Second)
 			continue
 		}
 

@@ -46,23 +46,24 @@ func (hrl *HostRateLimiter) getRL(host string, rps int) *rateLimit {
 func (hrl *HostRateLimiter) Wait(host string, rps int) {
 	rl := hrl.getRL(host, rps)
 
-	if hrl.Jitter {
-		jitter := time.Duration(float64(rl.duration) * (0.5 + 1.0*rand.Float64()))
-		time.Sleep(jitter)
-		return
-	}
-
-	for {
-		rl.mu.Lock()
-		if !rl.blocked {
-			tickerC := rl.ticker.C
-			rl.mu.Unlock()
-			<-tickerC
-			return
-		}
+	// Wait for ticker first to maintain global rate
+	rl.mu.Lock()
+	if rl.blocked {
 		unblock := rl.unblock
 		rl.mu.Unlock()
 		<-unblock
+		// Extra jitter after unblock to prevent "thundering herd"
+		time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+	} else {
+		tickerC := rl.ticker.C
+		rl.mu.Unlock()
+		<-tickerC
+	}
+
+	// Apply jitter AFTER ticker to spread out requests further
+	if hrl.Jitter {
+		jitter := time.Duration(float64(rl.duration) * rand.Float64())
+		time.Sleep(jitter)
 	}
 }
 

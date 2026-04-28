@@ -32,15 +32,16 @@ type InMessage struct {
 }
 
 type ScanConfig struct {
-	Workers     int               `msgpack:"workers"`
-	MaxDepth    int               `msgpack:"max_depth"`
-	UAs         []string          `msgpack:"user_agents"`
-	Headers     map[string]string `msgpack:"headers"`
-	RPS         float64           `msgpack:"rps"`
-	Timeout     int               `msgpack:"timeout_seconds"`
-	StealthMode bool              `msgpack:"stealth_mode"`
-	Jitter      bool              `msgpack:"jitter"`
-	Proxies     []string          `msgpack:"proxies"`
+	Workers         int               `msgpack:"workers"`
+	MaxDepth        int               `msgpack:"max_depth"`
+	UAs             []string          `msgpack:"user_agents"`
+	Headers         map[string]string `msgpack:"headers"`
+	RPS             float64           `msgpack:"rps"`
+	Timeout         int               `msgpack:"timeout_seconds"`
+	StealthMode     bool              `msgpack:"stealth_mode"`
+	Jitter          bool              `msgpack:"jitter"`
+	Proxies         []string          `msgpack:"proxies"`
+	CooldownSeconds int               `msgpack:"cooldown_seconds"`
 }
 
 type StatusMsg struct {
@@ -387,12 +388,14 @@ func serve(socketPath string) {
 			jar, _ := cookiejar.New(nil)
 
 			client = &RawClient{
-				Timeout:     time.Duration(cfg.Timeout) * time.Second,
-				UserAgents:  cfg.UAs,
-				RateLimiter: rl,
-				StealthMode: cfg.StealthMode,
-				Proxies:     cfg.Proxies,
-				Jar:         jar,
+				Timeout:          time.Duration(cfg.Timeout) * time.Second,
+				UserAgents:       cfg.UAs,
+				RateLimiter:      rl,
+				RPS:              cfg.RPS,
+				StealthMode:      cfg.StealthMode,
+				Proxies:          cfg.Proxies,
+				Jar:              jar,
+				CooldownDuration: time.Duration(cfg.CooldownSeconds) * time.Second,
 			}
 			if client.Timeout == 0 {
 				client.Timeout = 30 * time.Second

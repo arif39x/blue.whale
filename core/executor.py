@@ -286,16 +286,36 @@ class ScanExecutor:
                         "stealth_mode": self._config["stealth"]["rotate_user_agents"],
                         "jitter": self._config["stealth"]["jitter"],
                         "proxies": self._config["stealth"]["proxies"],
+                        "cooldown_seconds": self._config["stealth"]["cooldown_seconds"],
                     },
                 })
 
                 async for msg in bridge.stream():
                     if msg.get("type") == "payload_request":
+                        import random
                         p = msg.get("param", "")
-                        payloads = []
+                        
+                        high_priority = []
+                        normal_priority = []
+                        
                         for cat in ["sqli", "xss", "ssti", "ssrf", "xxe"]:
-                            payloads.extend([py["payload"] for py in self._mutator.context_aware_payloads(p, cat)])
-                        await bridge.send({"type": "payload_response", "param": p, "payloads": list(set(payloads))[:50]})
+                            for py in self._mutator.context_aware_payloads(p, cat):
+                                payload = py["payload"]
+                                if py.get("priority") == "high":
+                                    high_priority.append(payload)
+                                else:
+                                    normal_priority.append(payload)
+                        
+                        # Dedup and shuffle
+                        high_priority = list(set(high_priority))
+                        normal_priority = list(set(normal_priority))
+                        random.shuffle(high_priority)
+                        random.shuffle(normal_priority)
+                        
+                        # Limit to 15 high-quality payloads total
+                        final_payloads = (high_priority + normal_priority)[:15]
+                        
+                        await bridge.send({"type": "payload_response", "param": p, "payloads": final_payloads})
                     elif msg.get("type") == "node":
                         await self._browser_queue.put((msg.get("url"), None))
                         await self._results_queue.put(msg)

@@ -10,16 +10,16 @@ paths:
   user_agents: "data/user_agents.txt"
 
 engine:
-  workers: 100          # goroutine worker pool size for the crawler (increased for high-performance)
-  max_depth: 3              # maximum crawl depth from seed URL
-  ua_rotation: true         # rotate User-Agent per request (uses data/user_agents.txt)
-  timeout_seconds: 5       # per-request HTTP timeout (reduced for faster failure detection)
+  workers: 5          # reduced for maximum stealth
+  max_depth: 3
+  ua_rotation: true
+  timeout_seconds: 10      # increased for slower responses
 
 scan:
-  default_rps: 100           # requests-per-second throttle (increased for faster scanning)
-  timeout_seconds: 300      # hard wall-clock timeout for the full scan job
-  max_depth: 3              # crawl depth (also passed to engine config)
-  severity_filter:          # only report these severity levels
+  default_rps: 2           # extremely conservative for sensitive targets
+  timeout_seconds: 600
+  max_depth: 3
+  severity_filter:
     - critical
     - high
     - medium
@@ -27,14 +27,14 @@ scan:
     - info
 
 fuzzer:
-  payload_categories:       # corpus categories to fuzz during scan
+  payload_categories:
     - sqli
     - xss
     - ssti
     - ssrf
     - xxe
     - idor
-  transforms:               # default transform ordering (WAF-specific chains take precedence)
+  transforms:
     - url_encode
     - double_url_encode
     - unicode_escape
@@ -44,17 +44,16 @@ fuzzer:
 
 oast:
   domain: "bluewhale-oast.com"
-  public_ip: "127.0.0.1"   # Default for local testing
-  dns_port: 1053          # Use non-privileged ports for dev
+  public_ip: "127.0.0.1"
+  dns_port: 1053
   http_port: 1080
 
 stealth:
-  cooldown_threshold: 5
-     # consecutive 403/429 before cooldown triggers
-  cooldown_seconds: 30      # seconds to pause when cooldown fires
+  cooldown_threshold: 3
+  cooldown_seconds: 60
   rotate_user_agents: true
   jitter: true
-  proxies: [] # Add list of HTTP/SOCKS5 proxies here
+  proxies: []
 
 reporting:
   formats:

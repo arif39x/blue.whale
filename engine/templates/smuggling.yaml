@@ -1,17 +1,9 @@
-id: http-smuggling
-name: HTTP Request Smuggling (Desync)
+id: smuggling-basic
+name: HTTP Request Smuggling
 severity: critical
 requests:
   - method: POST
-    path:
-      - "{{BaseURL}}"
     payloads:
       - "CL.TE"
       - "TE.CL"
-    matchers:
-      - type: word
-        part: body
-        words:
-          - "Unrecognized"
-          - "malformed"
-          - "404 Not Found"
+    # Logic handled in sm.client.DoSmuggling

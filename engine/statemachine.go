@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +27,7 @@ type VulnerabilityMsg struct {
 type StateMachine struct {
 	templates []Template
 	client    *RawClient
+	headers   map[string]string
 	
 	seenSignatures sync.Map
 	endpoints      sync.Map // url -> *Endpoint
@@ -39,10 +43,11 @@ type Endpoint struct {
 	Baseline *RawResponse
 }
 
-func NewStateMachine(templates []Template, client *RawClient) *StateMachine {
+func NewStateMachine(templates []Template, client *RawClient, headers map[string]string) *StateMachine {
 	return &StateMachine{
 		templates:       templates,
 		client:          client,
+		headers:         headers,
 		payloadRequests: make(map[string]chan []string),
 	}
 }
@@ -106,20 +111,24 @@ func (sm *StateMachine) generateSignature(rawURL string) string {
 	return sig
 }
 
-func (sm *StateMachine) ProcessNode(rawURL string, params []string, tech []string) {
+func (sm *StateMachine) ProcessNode(rawURL string, params []string, tech []string, baseline *RawResponse) {
 	sig := sm.generateSignature(rawURL)
 	
-	actual, _ := sm.seenSignatures.LoadOrStore(sig, 0)
-	count := actual.(int)
-	if count >= 3 {
+	// Atomic counter fix
+	val, _ := sm.seenSignatures.LoadOrStore(sig, new(int32))
+	countPtr := val.(*int32)
+	count := atomic.AddInt32(countPtr, 1)
+	if count > 3 {
 		return
 	}
-	sm.seenSignatures.Store(sig, count+1)
 
-	// Capture baseline
-	baseline, err := sm.client.Do("GET", rawURL, nil, nil)
-	if err != nil {
-		return
+	// Optimization: Use baseline if already provided by crawler
+	if baseline == nil {
+		var err error
+		baseline, err = sm.client.Do("GET", rawURL, sm.headers, nil)
+		if err != nil {
+			return
+		}
 	}
 
 	ep := &Endpoint{
@@ -156,9 +165,40 @@ func (sm *StateMachine) Scan() {
 	})
 }
 
+func (sm *StateMachine) isSafeURL(targetURL string) bool {
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return false
+	}
+
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	if ip == nil {
+		ips, err := net.LookupIP(host)
+		if err == nil && len(ips) > 0 {
+			ip = ips[0]
+		}
+	}
+
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return false
+		}
+	}
+	
+	// Port security
+	port := u.Port()
+	if port != "" {
+		if port == "22" || port == "25" || port == "3306" || port == "5432" || port == "6379" {
+			return false // Block common internal service ports
+		}
+	}
+
+	return true
+}
+
 func (sm *StateMachine) Fuzz(ep *Endpoint) {
 	for _, t := range sm.templates {
-		// Filter by tech stack
 		if len(t.Tech) > 0 {
 			matched := false
 			for _, tTech := range t.Tech {
@@ -178,70 +218,101 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 		}
 
 		for _, req := range t.Requests {
-			for _, param := range ep.Params {
-				payloads := req.Payloads
-				
-				// Add dynamic payloads from Python
-				dynamic := sm.GetDynamicPayloads(param)
-				if len(dynamic) > 0 {
-					payloads = append(payloads, dynamic...)
+			// Template Path Support
+			var targetURLs []string
+			if len(req.Path) > 0 {
+				u, _ := url.Parse(ep.URL)
+				for _, p := range req.Path {
+					newU := *u
+					if strings.HasPrefix(p, "/") {
+						newU.Path = p
+					} else {
+						newU.Path = strings.TrimSuffix(u.Path, "/") + "/" + p
+					}
+					targetURLs = append(targetURLs, newU.String())
+				}
+			} else {
+				targetURLs = []string{ep.URL}
+			}
+
+			for _, targetURL := range targetURLs {
+				if !sm.isSafeURL(targetURL) {
+					fmt.Fprintf(os.Stderr, "[SECURITY] SSRF protection blocked target: %s\n", targetURL)
+					continue
 				}
 
-				for _, payload := range payloads {
-					var resp *RawResponse
-					var err error
+				paramsToFuzz := ep.Params
+				if len(paramsToFuzz) == 0 {
+					paramsToFuzz = []string{"fuzz"} // fallback for path testing
+				}
 
-					if payload == "CL.TE" || payload == "TE.CL" {
-						smuggled := []byte("GET /bw_smuggling_test HTTP/1.1\r\nHost: localhost\r\n\r\n")
-						resp, err = sm.client.DoSmuggling(req.Method, ep.URL, payload, smuggled)
-					} else {
-						// Construct fuzz URL
-						u, _ := url.Parse(ep.URL)
-						q := u.Query()
-						q.Set(param, payload)
-						u.RawQuery = q.Encode()
-						fuzzURL := u.String()
-
-						resp, err = sm.client.Do(req.Method, fuzzURL, nil, nil)
+				for _, param := range paramsToFuzz {
+					payloads := req.Payloads
+					
+					// Add dynamic payloads from Python
+					dynamic := sm.GetDynamicPayloads(param)
+					if len(dynamic) > 0 {
+						payloads = append(payloads, dynamic...)
 					}
 
-					if err != nil {
-						continue
-					}
+					for _, payload := range payloads {
+						var resp *RawResponse
+						var err error
 
-					// Differential Analysis
-					if ep.Baseline != nil {
-						// 1. Status Code Change
-						if resp.StatusCode != ep.Baseline.StatusCode {
-							sm.ReportVulnerability(t, ep.URL, param, payload, fmt.Sprintf("Status code changed from %d to %d (Differential)", ep.Baseline.StatusCode, resp.StatusCode))
+						if payload == "CL.TE" || payload == "TE.CL" {
+							smuggled := []byte("GET /bw_smuggling_test HTTP/1.1\r\nHost: localhost\r\n\r\n")
+							resp, err = sm.client.DoSmuggling(req.Method, targetURL, payload, smuggled)
+						} else {
+							u, _ := url.Parse(targetURL)
+							q := u.Query()
+							q.Set(param, payload)
+							u.RawQuery = q.Encode()
+							fuzzURL := u.String()
+
+							resp, err = sm.client.Do(req.Method, fuzzURL, sm.headers, nil)
 						}
 
-						// 2. Response Size Change (Significant, e.g. > 30% difference)
-						baseLen := float64(len(ep.Baseline.Body))
-						currLen := float64(len(resp.Body))
-						if baseLen > 0 {
-							diff := (currLen - baseLen) / baseLen
-							if diff > 0.3 || diff < -0.3 {
-								sm.ReportVulnerability(t, ep.URL, param, payload, fmt.Sprintf("Response size changed significantly (%.1f%% difference) (Differential)", diff*100))
+						if err != nil {
+							continue
+						}
+
+						// Differential Analysis - Stricter rules to reduce noise
+						if ep.Baseline != nil {
+							// 1. Status Code Change (only if it's significant, e.g., 200 -> 500 or 404 -> 200)
+							if resp.StatusCode != ep.Baseline.StatusCode {
+								if (ep.Baseline.StatusCode < 400 && resp.StatusCode >= 500) || 
+								   (ep.Baseline.StatusCode >= 400 && resp.StatusCode < 300) {
+									sm.ReportVulnerability(t, targetURL, param, payload, fmt.Sprintf("Status code changed from %d to %d (Significant)", ep.Baseline.StatusCode, resp.StatusCode))
+								}
 							}
-						}
-					}
 
-					// Check matchers (Keyword Matching)
-					body := string(resp.Body)
-					for _, matcher := range req.Matchers {
-						matched := false
-						if matcher.Part == "body" {
-							for _, word := range matcher.Words {
-								if strings.Contains(body, word) {
-									matched = true
-									sm.ReportVulnerability(t, ep.URL, param, payload, word)
-									break
+							// 2. Response Size Change (Significant, e.g. > 50% difference AND not a small file)
+							baseLen := float64(len(ep.Baseline.Body))
+							currLen := float64(len(resp.Body))
+							if baseLen > 500 {
+								diff := (currLen - baseLen) / baseLen
+								if diff > 0.5 || diff < -0.5 {
+									sm.ReportVulnerability(t, targetURL, param, payload, fmt.Sprintf("Response size changed significantly (%.1f%% difference)", diff*100))
 								}
 							}
 						}
-						if matched {
-							break
+
+						// Check matchers (Keyword Matching)
+						body := string(resp.Body)
+						for _, matcher := range req.Matchers {
+							matched := false
+							if matcher.Part == "body" {
+								for _, word := range matcher.Words {
+									if strings.Contains(body, word) {
+										matched = true
+										sm.ReportVulnerability(t, targetURL, param, payload, word)
+										break
+									}
+								}
+							}
+							if matched {
+								break
+							}
 						}
 					}
 				}
@@ -251,26 +322,25 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 }
 
 func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payload, evidence string) {
-	// 1. Honey-Token / Honeypot Evasion
-	// Check if this finding is "too good to be true" by sending a control request
+	// Honeypot Evasion logic fix
 	if strings.Contains(t.ID, "lfi") || strings.Contains(t.ID, "sqli") || strings.Contains(t.ID, "rce") {
 		u, _ := url.Parse(targetURL)
 		q := u.Query()
-		// Send a request with a completely random payload that should NOT work
 		randomPayload := "bw_honeypot_check_" + fmt.Sprintf("%d", time.Now().UnixNano())
 		q.Set(param, randomPayload)
 		u.RawQuery = q.Encode()
 		
-		resp, err := sm.client.Do("GET", u.String(), nil, nil)
+		resp, err := sm.client.Do("GET", u.String(), sm.headers, nil)
 		if err == nil {
-			// If the "invalid" payload returns the same evidence or status code 200, it's likely a honeypot
-			if strings.Contains(string(resp.Body), evidence) || (resp.StatusCode == 200 && strings.Contains(evidence, "Status code")) {
-				return // Discard finding
+			// If WAF blocks both genuine and random payload, don't discard
+			if resp.StatusCode == 403 || resp.StatusCode == 429 {
+				// Potential WAF, keep finding
+			} else if strings.Contains(string(resp.Body), evidence) || (resp.StatusCode == 200 && strings.Contains(evidence, "Status code")) {
+				return // Likely honeypot
 			}
 		}
 	}
 
-	// 2. Vulnerability Msg Emission
 	emit(VulnerabilityMsg{
 		Type:     "vulnerability",
 		ID:       t.ID,
@@ -282,24 +352,17 @@ func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payloa
 		Evidence: evidence,
 	})
 
-	// 3. Chain Reaction Logic
+	// Chain Reaction Logic - SSRF fix: Ensure chain probes use SSRF endpoint
 	if strings.Contains(t.ID, "ssrf") {
-		// SSRF found -> Chain to local port scan
 		internalPorts := []string{"22", "80", "443", "6379", "8080", "9000"}
 		for _, port := range internalPorts {
-			sm.ProcessNode("http://127.0.0.1:"+port+"/", nil, []string{"internal"})
-		}
-	} else if strings.Contains(t.ID, "lfi") || strings.Contains(t.ID, "path-traversal") {
-		// LFI found -> Chain to sensitive file extraction
-		sensitiveFiles := []string{"/proc/self/environ", "/etc/shadow", "/var/www/html/config.php"}
-		for _, f := range sensitiveFiles {
-			// This is a simplification; ideally we'd trigger a specific template
+			// Probe internal network THROUGH the SSRF vulnerability
 			u, _ := url.Parse(targetURL)
 			q := u.Query()
-			q.Set(param, f)
+			q.Set(param, fmt.Sprintf("http://127.0.0.1:%s/", port))
 			u.RawQuery = q.Encode()
-			// We just process it as a node so the fuzzer picks it up or we log it
-			sm.ProcessNode(u.String(), nil, []string{"sensitive"})
+			// Report it or queue it for differential analysis
+			sm.ProcessNode(u.String(), nil, []string{"internal-pivot"}, nil)
 		}
 	}
 }

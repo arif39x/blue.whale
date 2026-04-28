@@ -28,7 +28,7 @@ warn() { echo "  [bootstrap] ! $*" >&2; }
 
 echo ""
 echo "╔══════════════════════════════════════╗"
-echo "║       Blue Whale - Bootstrap         ║"
+echo "║              Blue Whale              ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 

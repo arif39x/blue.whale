@@ -13,9 +13,9 @@ from core.paths import ENGINE_BINARY, TMP_DIR
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_RESTART_DELAY = 1.0  # seconds before restart on crash
+_DEFAULT_RESTART_DELAY = 1.0
 _MAX_RESTARTS = 3
-_READ_BUF = 4 * 1024 * 1024  # 4 MB read buffer
+_READ_BUF = 4 * 1024 * 1024
 
 
 class EngineError(RuntimeError):
@@ -23,11 +23,6 @@ class EngineError(RuntimeError):
 
 
 class EngineBridge:
-    """
-    Async context manager that owns the Go engine subprocess and communicates
-    via a Unix Domain Socket using MessagePack.
-    """
-
     def __init__(
         self,
         binary: Path | None = None,
@@ -51,17 +46,18 @@ class EngineBridge:
     async def __aexit__(self, *_) -> None:
         await self.close()
 
-    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _handle_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         self._reader = reader
         self._writer = writer
         self._connected.set()
         logger.debug("[bridge] Engine connected via UDS")
 
     async def send(self, msg: dict) -> None:
-        """Serialize and send a MessagePack message to the engine."""
         if not self._connected.is_set() or self._writer is None:
             await asyncio.wait_for(self._connected.wait(), timeout=10.0)
-        
+
         packed = msgpack.packb(msg)
         async with self._send_lock:
             try:
@@ -72,27 +68,25 @@ class EngineBridge:
                 raise EngineError("Engine connection lost")
 
     async def stream(self) -> AsyncIterator[dict]:
-        """Stream MessagePack messages from the engine."""
         unpacker = msgpack.Unpacker(raw=False)
-        
+
         while True:
             if not self._connected.is_set() or self._reader is None:
                 try:
                     await asyncio.wait_for(self._connected.wait(), timeout=15.0)
                 except asyncio.TimeoutError:
                     if self._proc and self._proc.returncode is not None:
-                        break # process died
+                        break  # process died
                     raise EngineError("Timed out waiting for engine to connect")
 
             try:
                 chunk = await self._reader.read(_READ_BUF)
                 if not chunk:
-                    # Connection closed, check for restart
                     await self._wait_for_exit_and_restart()
                     if self._restarts > _MAX_RESTARTS:
                         break
                     continue
-                
+
                 unpacker.feed(chunk)
                 for msg in unpacker:
                     yield msg
@@ -104,14 +98,16 @@ class EngineBridge:
     async def _wait_for_exit_and_restart(self) -> None:
         if self._proc is None:
             return
-            
+
         rc = await self._proc.wait()
         self._connected.clear()
-        
+
         if rc != 0 and self._restarts < _MAX_RESTARTS:
             logger.warning(
                 "[bridge] Engine exited with code %s - restarting (%s/%s)...",
-                rc, self._restarts + 1, _MAX_RESTARTS
+                rc,
+                self._restarts + 1,
+                _MAX_RESTARTS,
             )
             await asyncio.sleep(_DEFAULT_RESTART_DELAY)
             self._restarts += 1
@@ -120,7 +116,6 @@ class EngineBridge:
             self._proc = None
 
     async def close(self) -> None:
-        """Gracefully terminate the engine and cleanup sockets."""
         self._connected.clear()
         if self._writer:
             try:
@@ -128,18 +123,19 @@ class EngineBridge:
                 await self._writer.wait_closed()
             except:
                 pass
-        
+
         if self._server:
             self._server.close()
             await self._server.wait_closed()
-            
+
         if self._proc:
             try:
                 if self._proc.returncode is None:
                     self._proc.terminate()
                     await asyncio.wait_for(self._proc.wait(), timeout=5.0)
             except:
-                if self._proc: self._proc.kill()
+                if self._proc:
+                    self._proc.kill()
             self._proc = None
 
         if self._socket_path and os.path.exists(self._socket_path):
@@ -154,18 +150,17 @@ class EngineBridge:
 
         # Ensure TMP_DIR exists
         TMP_DIR.mkdir(parents=True, exist_ok=True)
-        
-        # Create a unique socket path in TMP_DIR
+
         fd, path = tempfile.mkstemp(suffix=".sock", dir=str(TMP_DIR))
         os.close(fd)
-        os.unlink(path) # start_unix_server will create it
+        os.unlink(path)
         self._socket_path = path
 
         self._server = await asyncio.start_unix_server(self._handle_client, path)
-        
+
         cmd = [str(self._binary), "serve", "--socket", path] + self._extra_args
         logger.info("[bridge] Spawning engine: %s", " ".join(cmd))
-        
+
         self._proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.DEVNULL,
@@ -174,7 +169,6 @@ class EngineBridge:
         )
         logger.info("[bridge] Engine PID=%s", self._proc.pid)
 
-        # Still drain stderr for debugging
         asyncio.create_task(self._drain_stderr())
 
     async def _drain_stderr(self) -> None:
@@ -183,4 +177,4 @@ class EngineBridge:
         async for line in self._proc.stderr:
             decoded = line.decode(errors="replace").rstrip()
             if decoded:
-                logger.debug("[engine-stderr] %s", decoded)
+                logger.warning("[engine-stderr] %s", decoded)

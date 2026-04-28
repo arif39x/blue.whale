@@ -1,17 +1,13 @@
-id: xss-reflection
-name: Basic XSS Reflection
+id: xss-basic
+name: Basic XSS
 severity: medium
 requests:
   - method: GET
-    path: ["{{BaseURL}}"]
     payloads:
       - "<script>alert(1)</script>"
       - "<img src=x onerror=alert(1)>"
-      - "<svg/onload=alert(1)>"
     matchers:
-      - type: word
-        part: body
+      - part: body
         words:
           - "<script>alert(1)</script>"
-          - "<img src=x onerror=alert(1)>"
-          - "<svg/onload=alert(1)>"
+          - "onerror=alert(1)"

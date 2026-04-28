@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -12,10 +13,11 @@ type HostRateLimiter struct {
 }
 
 type rateLimit struct {
-	ticker     *time.Ticker
-	duration   time.Duration
-	lastUpdate time.Time
-	blocked    bool
+	mu       sync.Mutex
+	ticker   *time.Ticker
+	duration time.Duration
+	blocked  bool
+	unblock  chan struct{}
 }
 
 func NewHostRateLimiter() *HostRateLimiter {
@@ -24,46 +26,71 @@ func NewHostRateLimiter() *HostRateLimiter {
 	}
 }
 
-func (hrl *HostRateLimiter) Wait(host string, rps int) {
+func (hrl *HostRateLimiter) getRL(host string, rps int) *rateLimit {
 	hrl.mu.Lock()
+	defer hrl.mu.Unlock()
+
 	rl, ok := hrl.hosts[host]
 	if !ok {
 		d := time.Second / time.Duration(rps)
 		rl = &rateLimit{
 			ticker:   time.NewTicker(d),
 			duration: d,
+			unblock:  make(chan struct{}),
 		}
 		hrl.hosts[host] = rl
 	}
-	hrl.mu.Unlock()
-
-	if hrl.Jitter {
-		// Add random jitter between 50% and 150% of the duration
-		jitter := time.Duration(float64(rl.duration) * (0.5 + 1.0*randFloat()))
-		time.Sleep(jitter)
-	} else {
-		<-rl.ticker.C
-	}
+	return rl
 }
 
-func randFloat() float64 {
-	// Simple non-cryptographic random for jitter
-	return float64(time.Now().UnixNano()%1000) / 1000.0
+func (hrl *HostRateLimiter) Wait(host string, rps int) {
+	rl := hrl.getRL(host, rps)
+
+	// Wait for ticker first to maintain global rate
+	rl.mu.Lock()
+	if rl.blocked {
+		unblock := rl.unblock
+		rl.mu.Unlock()
+		<-unblock
+		// Extra jitter after unblock to prevent "thundering herd"
+		time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+	} else {
+		tickerC := rl.ticker.C
+		rl.mu.Unlock()
+		<-tickerC
+	}
+
+	// Apply jitter AFTER ticker to spread out requests further
+	if hrl.Jitter {
+		jitter := time.Duration(float64(rl.duration) * rand.Float64())
+		time.Sleep(jitter)
+	}
 }
 
 func (hrl *HostRateLimiter) Block(host string, duration time.Duration) {
 	hrl.mu.Lock()
 	rl, ok := hrl.hosts[host]
+	hrl.mu.Unlock()
+
 	if ok {
+		rl.mu.Lock()
+		if rl.blocked {
+			rl.mu.Unlock()
+			return
+		}
 		rl.blocked = true
 		rl.ticker.Stop()
+		rl.unblock = make(chan struct{})
+		rl.mu.Unlock()
+
 		go func() {
 			time.Sleep(duration)
-			hrl.mu.Lock()
+			rl.mu.Lock()
 			rl.blocked = false
 			rl.ticker = time.NewTicker(rl.duration)
-			hrl.mu.Unlock()
+			close(rl.unblock)
+			rl.mu.Unlock()
 		}()
 	}
-	hrl.mu.Unlock()
 }
+

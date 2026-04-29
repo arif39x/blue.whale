@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
 
 CONFIG_DIR: Path = PROJECT_ROOT / "config"
-CORE_DIR: Path = PROJECT_ROOT / "core"
+CORE_DIR: Path = PROJECT_ROOT / "src" / "core"
 SH_DIR: Path = PROJECT_ROOT / "sh"
 BIN_DIR: Path = PROJECT_ROOT / "bin"
 DATA_DIR: Path = PROJECT_ROOT / "data"
@@ -20,7 +20,6 @@ SETTINGS_FILE: Path = CONFIG_DIR / "settings.yaml"
 USER_AGENTS_FILE: Path = DATA_DIR / "user_agents.txt"
 
 # Bash bridge scripts
-PIPE_SCRIPT: Path = SH_DIR / "pipe.sh"
 BOOTSTRAP_SCRIPT: Path = SH_DIR / "bootstrap.sh"
 
 # Compiled Go engine binary
@@ -59,7 +58,6 @@ def all_paths() -> dict[str, Path]:
         "REPORTS_DIR": REPORTS_DIR,
         "SETTINGS_FILE": SETTINGS_FILE,
         "USER_AGENTS_FILE": USER_AGENTS_FILE,
-        "PIPE_SCRIPT": PIPE_SCRIPT,
         "BOOTSTRAP_SCRIPT": BOOTSTRAP_SCRIPT,
         "ENGINE_BINARY": ENGINE_BINARY,
     }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	utls "github.com/refraction-networking/utls"
+	"golang.org/x/net/proxy"
 )
 
 type RawResponse struct {
@@ -30,9 +31,51 @@ type RawClient struct {
 	RateLimiter      *HostRateLimiter
 	RPS              float64
 	Proxies          []string
+	TorMode          bool
 	StealthMode      bool
 	Jar              http.CookieJar
 	CooldownDuration time.Duration
+}
+
+func (c *RawClient) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	// Check Tor Mode (SOCKS5 127.0.0.1:9050)
+	if c.TorMode {
+		dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:9050", nil, proxy.Direct)
+		if err != nil {
+			return nil, fmt.Errorf("tor proxy failed: %v", err)
+		}
+		return dialer.Dial(network, addr)
+	}
+
+	// Check Rotating Proxies
+	if len(c.Proxies) > 0 {
+		proxyURLStr := c.Proxies[rand.Intn(len(c.Proxies))]
+		pURL, err := url.Parse(proxyURLStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy URL: %v", err)
+		}
+
+		if pURL.Scheme == "socks5" {
+			dialer, err := proxy.SOCKS5("tcp", pURL.Host, nil, proxy.Direct)
+			if err != nil {
+				return nil, fmt.Errorf("socks5 proxy failed: %v", err)
+			}
+			return dialer.Dial(network, addr)
+		}
+
+		// Basic HTTP Proxy tunneling (TCP Dial to proxy)
+		if pURL.Scheme == "http" || pURL.Scheme == "https" {
+			d := &net.Dialer{}
+			return d.DialContext(ctx, network, pURL.Host)
+		}
+
+		d := &net.Dialer{}
+		return d.DialContext(ctx, network, pURL.Host)
+	}
+
+	// Direct Connection
+	d := &net.Dialer{}
+	return d.DialContext(ctx, network, addr)
 }
 
 func (c *RawClient) Do(method, targetURL string, headers map[string]string, body []byte) (*RawResponse, error) {
@@ -69,16 +112,7 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
 		// We handle cancel() manually per iteration to avoid defer buildup in loop
 
-		var conn net.Conn
-		dialer := &net.Dialer{}
-
-		// Proxy support with rotation
-		if len(c.Proxies) > 0 {
-			proxyAddr := c.Proxies[rand.Intn(len(c.Proxies))]
-			conn, err = dialer.DialContext(ctx, "tcp", proxyAddr)
-		} else {
-			conn, err = dialer.DialContext(ctx, "tcp", addr)
-		}
+		conn, err := c.dial(ctx, "tcp", addr)
 
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Connection failed (attempt %d): %v\n", i+1, err)
@@ -256,7 +290,7 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 			}, nil
 		}
 
-		if resp.StatusCode >= 400 && i < maxRetries-1 {
+		if resp.StatusCode >= 500 && i < maxRetries-1 {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Received status %d (attempt %d). Retrying...\n", resp.StatusCode, i+1)
 			continue
 		}
@@ -287,7 +321,7 @@ func (c *RawClient) DoSmuggling(method, targetURL, smugglingType string, smuggle
 	}
 
 	addr := net.JoinHostPort(u.Hostname(), port)
-	conn, err := net.DialTimeout("tcp", addr, c.Timeout)
+	conn, err := c.dial(context.Background(), "tcp", addr)
 	if err != nil {
 		return nil, err
 	}

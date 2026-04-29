@@ -28,7 +28,7 @@ type StateMachine struct {
 	templates []Template
 	client    *RawClient
 	headers   map[string]string
-	
+
 	seenSignatures sync.Map
 	endpoints      sync.Map // url -> *Endpoint
 
@@ -113,7 +113,7 @@ func (sm *StateMachine) generateSignature(rawURL string) string {
 
 func (sm *StateMachine) ProcessNode(rawURL string, params []string, tech []string, baseline *RawResponse) {
 	sig := sm.generateSignature(rawURL)
-	
+
 	// Atomic counter fix
 	val, _ := sm.seenSignatures.LoadOrStore(sig, new(int32))
 	countPtr := val.(*int32)
@@ -122,7 +122,6 @@ func (sm *StateMachine) ProcessNode(rawURL string, params []string, tech []strin
 		return
 	}
 
-	// Optimization: Use baseline if already provided by crawler
 	if baseline == nil {
 		var err error
 		baseline, err = sm.client.Do("GET", rawURL, sm.headers, nil)
@@ -151,7 +150,7 @@ func (sm *StateMachine) Scan() {
 	sm.endpoints.Range(func(key, value any) bool {
 		ep := value.(*Endpoint)
 		count++
-		
+
 		pct := (count * 100) / total
 		emit(StatusMsg{
 			Type:     "status",
@@ -185,7 +184,7 @@ func (sm *StateMachine) isSafeURL(targetURL string) bool {
 			return false
 		}
 	}
-	
+
 	// Port security
 	port := u.Port()
 	if port != "" {
@@ -248,7 +247,7 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 
 				for _, param := range paramsToFuzz {
 					payloads := req.Payloads
-					
+
 					// Add dynamic payloads from Python
 					dynamic := sm.GetDynamicPayloads(param)
 					if len(dynamic) > 0 {
@@ -277,16 +276,16 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 						}
 
 						// Differential Analysis - Stricter rules to reduce noise
-						if ep.Baseline != nil {
-							// 1. Status Code Change (only if it's significant, e.g., 200 -> 500 or 404 -> 200)
+						if ep.Baseline != nil && resp.StatusCode != 405 {
+							//Status Code Change (only if it's significant, e.g., 200 -> 500 or 404 -> 200)
 							if resp.StatusCode != ep.Baseline.StatusCode {
-								if (ep.Baseline.StatusCode < 400 && resp.StatusCode >= 500) || 
-								   (ep.Baseline.StatusCode >= 400 && resp.StatusCode < 300) {
+								if (ep.Baseline.StatusCode < 400 && resp.StatusCode >= 500) ||
+									(ep.Baseline.StatusCode >= 400 && resp.StatusCode < 300) {
 									sm.ReportVulnerability(t, targetURL, param, payload, fmt.Sprintf("Status code changed from %d to %d (Significant)", ep.Baseline.StatusCode, resp.StatusCode))
 								}
 							}
 
-							// 2. Response Size Change (Significant, e.g. > 50% difference AND not a small file)
+							//  Response Size Change (Significant, e.g. > 50% difference AND not a small file)
 							baseLen := float64(len(ep.Baseline.Body))
 							currLen := float64(len(resp.Body))
 							if baseLen > 500 {
@@ -329,7 +328,7 @@ func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payloa
 		randomPayload := "bw_honeypot_check_" + fmt.Sprintf("%d", time.Now().UnixNano())
 		q.Set(param, randomPayload)
 		u.RawQuery = q.Encode()
-		
+
 		resp, err := sm.client.Do("GET", u.String(), sm.headers, nil)
 		if err == nil {
 			// If WAF blocks both genuine and random payload, don't discard

@@ -159,6 +159,8 @@ def cli() -> None:
     default=False,
     help="Print plan without running the scan.",
 )
+@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy URL.")
+@click.option("--tor", is_flag=True, default=False, help="Route traffic through local Tor daemon.")
 @click.option("--verbose", "-v", is_flag=True, default=False)
 def cmd_scan(
     target: str,
@@ -174,7 +176,114 @@ def cmd_scan(
     brute_auth: bool,
     show_nodes: bool,
     dry_run: bool,
+    proxy: str | None,
+    tor: bool,
     verbose: bool,
+) -> None:
+    """Complete hybrid scan (crawl + fuzz + loot)."""
+    _run_core_scan(
+        target=target,
+        header=header,
+        rps=rps,
+        rpm=rpm,
+        timeout=timeout,
+        severity=severity,
+        output=output,
+        fmt=fmt,
+        profile=profile,
+        evasion_level=evasion_level,
+        brute_auth=brute_auth,
+        show_nodes=show_nodes,
+        dry_run=dry_run,
+        proxy=proxy,
+        tor=tor,
+        action="both",
+        verbose=verbose
+    )
+
+
+@cli.command("crawl")
+@click.option("--target", "-t", required=True, help="Target URL to crawl.")
+@click.option("--header", "-H", default=None, help="Custom HTTP header.")
+@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy URL.")
+@click.option("--tor", is_flag=True, default=False, help="Route traffic through local Tor daemon.")
+@click.option("--timeout", default=None, type=int, help="Hard timeout in seconds.")
+@click.option("--rps", default=None, type=float, help="Requests per second.")
+@click.option(
+    "--show-nodes",
+    is_flag=True,
+    default=True,
+    help="Print discovered endpoint nodes live.",
+)
+@click.option("--output", "-o", default=None, help="Output directory.")
+@click.option("--verbose", "-v", is_flag=True, default=False)
+def cmd_crawl(target: str, header: str | None, proxy: str | None, tor: bool, timeout: int | None, rps: float | None, show_nodes: bool, output: str | None, verbose: bool):
+    """Perform spidering and discovery only."""
+    _run_core_scan(target=target, header=header, action="crawl", proxy=proxy, tor=tor, timeout=timeout, rps=rps, output=output, verbose=verbose, show_nodes=show_nodes)
+
+
+@cli.command("fuzz")
+@click.option("--nodes", "-n", required=True, type=click.Path(exists=True), help="File containing URLs.")
+@click.option("--header", "-H", default=None, help="Custom HTTP header.")
+@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy URL.")
+@click.option("--tor", is_flag=True, default=False, help="Route traffic through local Tor daemon.")
+@click.option("--severity", default=None, help="Severity filter.")
+@click.option("--rps", default=None, type=float, help="Requests per second.")
+@click.option("--output", "-o", default=None, help="Output directory.")
+@click.option("--verbose", "-v", is_flag=True, default=False)
+def cmd_fuzz(nodes: str, header: str | None, proxy: str | None, tor: bool, severity: str | None, rps: float | None, output: str | None, verbose: bool):
+    """Perform vulnerability fuzzing on a list of nodes."""
+    node_list = Path(nodes).read_text().splitlines()
+    _run_core_scan(target="fuzz_session", header=header, nodes=node_list, action="fuzz", proxy=proxy, tor=tor, severity=severity, rps=rps, output=output, verbose=verbose)
+
+
+@cli.command("loot")
+@click.option("--target", "-t", required=True, help="Target URL to loot.")
+@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy URL.")
+@click.option("--tor", is_flag=True, default=False, help="Route traffic through local Tor daemon.")
+@click.option(
+    "--evasion-level",
+    default="high",
+    type=click.Choice(["none", "low", "high"]),
+    help="Browser stealth level.",
+)
+@click.option("--verbose", "-v", is_flag=True, default=False)
+def cmd_loot(target: str, proxy: str | None, tor: bool, evasion_level: str, verbose: bool):
+    """Run headless browser to extract storage and cookies."""
+    _run_core_scan(target=target, action="loot", proxy=proxy, tor=tor, evasion_level=evasion_level, verbose=verbose)
+
+
+@cli.command("oast")
+def cmd_oast():
+    """Start the OAST server and wait for interactions."""
+    async def _oast_only():
+        from core.executor import ScanExecutor
+        executor = ScanExecutor(target="oast_monitor")
+        async for msg in executor.run():
+            if msg.get("type") == "oast_hit":
+                console.print(f"  [bold red][OAST HIT][/bold red] {msg.get('protocol')} from {msg.get('remote_addr')}")
+    asyncio.run(_oast_only())
+
+
+def _run_core_scan(
+    target: str,
+    header: str | None = None,
+    rps: float | None = None,
+    rpm: float | None = None,
+    timeout: int | None = None,
+    severity: str | None = None,
+    output: str | None = None,
+    fmt: str = "html",
+    profile: str | None = None,
+    evasion_level: str = "high",
+    brute_auth: bool = False,
+    show_nodes: bool = False,
+    dry_run: bool = False,
+    proxy: str | None = None,
+    tor: bool = False,
+    action: str = "both",
+    nodes: list[str] | None = None,
+    verbose: bool = False,
 ) -> None:
     _setup_logging(verbose)
     cfg = yaml.safe_load(SETTINGS_FILE.read_text())
@@ -210,7 +319,7 @@ def cmd_scan(
 
     console.print(
         Panel(
-            f"[bold cyan]Target:[/bold cyan] {target}\n[bold cyan]Speed:[/bold cyan] {final_rps:.2f} RPS ({effective_rpm:.2f} RPM)\n[bold cyan]Severities:[/bold cyan] {', '.join(sev_list)}\n[bold cyan]Evasion:[/bold cyan] {evasion_level}",
+            f"[bold cyan]Target:[/bold cyan] {target}\n[bold cyan]Speed:[/bold cyan] {final_rps:.2f} RPS ({effective_rpm:.2f} RPM)\n[bold cyan]Severities:[/bold cyan] {', '.join(sev_list)}\n[bold cyan]Evasion:[/bold cyan] {evasion_level}\n[bold cyan]Tor Anonymity:[/bold cyan] {'[green]ON[/green]' if tor else '[red]OFF[/red]'}",
             title="Blue Whale Initialization",
             expand=False,
         )
@@ -228,6 +337,9 @@ def cmd_scan(
         timeout=timeout,
         severity=sev_list,
         dry_run=dry_run,
+        action=action,
+        tor_mode=tor,
+        nodes=nodes
     )
 
     parser = ResultParser(severity_filter=sev_list)
@@ -368,7 +480,7 @@ def cmd_scan(
                         )
                         total = msg.get("total_nodes", node_count)
                         console.print(
-                            f"\n  [bold green]Crawl complete[/bold green] - {total} endpoints discovered."
+                            f"\n  [bold green]Scan complete[/bold green] - {total} endpoints processed."
                         )
 
                     elif msg_type == "error":
@@ -386,7 +498,8 @@ def cmd_scan(
 
     asyncio.run(_run())
 
-    _print_summary(parser)
+    if action in ("fuzz", "both"):
+        _print_summary(parser)
 
     if not dry_run:
         # Always export JSONL for raw data persistence
@@ -394,11 +507,12 @@ def cmd_scan(
         parser.export_jsonl(json_path)
         console.print(f"\n  [cyan]Raw JSONL results[/cyan] -> {json_path}")
 
-        # Always export HTML for human readability
-        reporter = Reporter(target=target, job_id=executor.job_id)
-        reporter.load_from_parser(parser)
-        html_path = reporter.export_html(out_dir)
-        console.print(f"  [cyan]HTML report[/cyan]       -> {html_path}")
+        if action in ("fuzz", "both"):
+            # Always export HTML for human readability
+            reporter = Reporter(target=target, job_id=executor.job_id)
+            reporter.load_from_parser(parser)
+            html_path = reporter.export_html(out_dir)
+            console.print(f"  [cyan]HTML report[/cyan]       -> {html_path}")
 
         if fmt == "csv":
             path = parser.export_csv(out_dir / f"whale_{executor.job_id}.csv")

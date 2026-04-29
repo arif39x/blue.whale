@@ -88,18 +88,18 @@ python main.py scan -t http://example.com -H "Cookie: session=123"
 
 ---
 
-## ⌨️ Command Reference
+## Command Reference
 
 ### Scan Options
 
-| Command           | Description                                |
-| :---------------- | :----------------------------------------- |
-| `-t, --target`    | The URL of the target website              |
-| `--profile`       | `standard`, `aggressive`, or `stealth`     |
-| `--rpm`           | Set a specific speed (Requests Per Minute) |
+| Command           | Description                                   |
+| :---------------- | :-------------------------------------------- |
+| `-t, --target`    | The URL of the target website                 |
+| `--profile`       | `standard`, `aggressive`, or `stealth`        |
+| `--rpm`           | Set a specific speed (Requests Per Minute)    |
 | `--evasion-level` | Browser stealth level (`none`, `low`, `high`) |
-| `--brute-auth`    | Enable credential stuffing & auth testing  |
-| `--format`        | Output format (e.g., `pdf`, `json`)        |
+| `--brute-auth`    | Enable credential stuffing & auth testing     |
+| `--format`        | Output format (e.g., `pdf`, `json`)           |
 
 ### Management
 

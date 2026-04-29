@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BIN_DIR="${PROJECT_ROOT}/bin"
-ENGINE_SRC="${PROJECT_ROOT}/engine"
+ENGINE_SRC="${PROJECT_ROOT}/src/engine"
 ENGINE_BIN="${BIN_DIR}/whale-engine"
 FORCE=false
 

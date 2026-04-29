@@ -5,9 +5,12 @@ import os
 import sys
 from pathlib import Path
 
-# project root is on sys.path regardless of CWD
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# project root and src are on sys.path
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 _ROOT = Path(__file__).resolve().parent
+_SRC = _ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -28,7 +31,7 @@ logger = logging.getLogger("whale")
 
 
 def main() -> None:
-    # CLI is now the only mode. If no args, show banner and help.
+    # Delegate all work to the Click command group in cli/commands.py
     if len(sys.argv) == 1:
         print(_BANNER)
         from cli.commands import cli
@@ -37,7 +40,11 @@ def main() -> None:
         except SystemExit:
             pass
     else:
-        _launch_cli()
+        if any(arg in sys.argv for arg in ["-h", "--help", "help"]):
+            print(_BANNER)
+
+        from cli.commands import cli
+        cli(standalone_mode=True)
 
 
 _BANNER = r"""\033[32m
@@ -48,16 +55,6 @@ _BANNER = r"""\033[32m
 ██████╔╝███████╗╚██████╔╝███████╗    ╚███╔███╔╝██║  ██║██║  ██║███████╗███████╗
 ╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝     ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝
 \033[0m"""
-
-
-def _launch_cli() -> None:
-    # Delegate all CLI work to the Click command group.
-    if any(arg in sys.argv for arg in ["-h", "--help", "help"]):
-        print(_BANNER)
-
-    from cli.commands import cli
-
-    cli(standalone_mode=True)
 
 
 if __name__ == "__main__":

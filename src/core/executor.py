@@ -44,33 +44,43 @@ class BrowserController:
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         window.chrome = { runtime: {} };
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
         
+        // Mocking hardware concurrency and memory
+        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+        Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
         const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
         CanvasRenderingContext2D.prototype.getImageData = function(x, y, w, h) {
             const data = originalGetImageData.apply(this, arguments);
             data.data[0] = data.data[0] + (Math.random() > 0.5 ? 1 : -1);
             return data;
         };
-
-        const getParameter = WebGLRenderingContext.prototype.getParameter;
-        WebGLRenderingContext.prototype.getParameter = function(parameter) {
-            if (parameter === 37445) return 'Intel Open Source Technology Center';
-            if (parameter === 37446) return 'Mesa DRI Intel(R) HD Graphics 520 (Skylake GT2)';
-            return getParameter.apply(this, arguments);
-        };
     """
 
-    def __init__(self, evasion_level: str = "high", brute_auth: bool = False):
+    def __init__(self, evasion_level: str = "high", brute_auth: bool = False, tor_mode: bool = False):
         self.evasion_level = evasion_level
         self.brute_auth = brute_auth
+        self.tor_mode = tor_mode
         self._browser = None
         self._context = None
 
     async def start(self, playwright):
         self._browser = await playwright.chromium.launch(headless=True)
+        proxy = None
+        if self.tor_mode:
+            proxy = {"server": "socks5://127.0.0.1:9050"}
+            
+        import random
+        w = random.choice([1920, 1440, 1366])
+        h = random.choice([1080, 900, 768])
+
         self._context = await self._browser.new_context(
-            user_agent=_load_user_agents()[0],
-            viewport={'width': 1280, 'height': 720}
+            user_agent=_load_user_agents()[random.randint(0, len(_load_user_agents())-1)],
+            viewport={'width': w, 'height': h},
+            proxy=proxy,
+            device_scale_factor=random.choice([1, 2]),
+            has_touch=random.choice([True, False])
         )
         if self.evasion_level != "none":
             await self._context.add_init_script(self.DEFAULT_STEALTH_JS)
@@ -159,6 +169,9 @@ class ScanExecutor:
         dry_run: bool = False,
         evasion_level: str | None = None,
         brute_auth: bool = False,
+        action: str = "both",
+        tor_mode: bool = False,
+        nodes: list[str] | None = None,
     ) -> None:
         cfg = _load_settings()
         self.target = target
@@ -168,6 +181,9 @@ class ScanExecutor:
         self.severity = severity or cfg["scan"]["severity_filter"]
         self.dry_run = dry_run
         self.brute_auth = brute_auth
+        self.action = action
+        self.tor_mode = tor_mode
+        self.nodes = nodes or []
         self.job_id = uuid.uuid4().hex[:8]
 
         oast_cfg = cfg.get("oast", {})
@@ -200,11 +216,15 @@ class ScanExecutor:
         await self._oast_server.start(self._config["oast"]["http_port"], self._config["oast"]["dns_port"])
         
         workers = [asyncio.create_task(self._bridge_worker())]
-        for _ in range(self._browser_workers_count):
-            workers.append(asyncio.create_task(self._browser_worker()))
+        if self.action in ("scan", "loot", "both"):
+            for _ in range(self._browser_workers_count):
+                workers.append(asyncio.create_task(self._browser_worker()))
             
         # OAST polling loop (Loss fix)
         workers.append(asyncio.create_task(self._oast_poller()))
+
+        if self.action == "loot":
+            await self._browser_queue.put((self.target, None))
 
         try:
             while not self._cancelled:
@@ -212,6 +232,8 @@ class ScanExecutor:
                 msg_type = msg.get("type", "")
 
                 if msg_type == "scan_done":
+                    if self.action == "loot":
+                        await self._browser_queue.join()
                     yield msg
                     break
                 
@@ -275,7 +297,9 @@ class ScanExecutor:
                 self._current_bridge = bridge
                 await bridge.send({
                     "type": "scan_start",
+                    "action": self.action,
                     "targets": [self.target],
+                    "nodes": self.nodes,
                     "config": {
                         "workers": self._config["engine"]["workers"],
                         "max_depth": self._config["engine"]["max_depth"],
@@ -283,6 +307,7 @@ class ScanExecutor:
                         "headers": headers,
                         "rps": self.rps,
                         "timeout_seconds": self.timeout,
+                        "tor_mode": self.tor_mode,
                         "stealth_mode": self._config["stealth"]["rotate_user_agents"],
                         "jitter": self._config["stealth"]["jitter"],
                         "proxies": self._config["stealth"]["proxies"],
@@ -325,18 +350,27 @@ class ScanExecutor:
             await self._results_queue.put({"type": "error", "message": f"Bridge: {e}"})
 
     async def _browser_worker(self):
-        async with async_playwright() as p:
-            controller = BrowserController(evasion_level=self._evasion_level, brute_auth=self.brute_auth)
-            await controller.start(p)
-            try:
-                while True:
-                    url, token = await self._browser_queue.get()
-                    for f in await controller.scan_url(url, token):
-                        if f["type"] == "vulnerability": self._vulnerabilities.append(f)
-                        await self._results_queue.put(f)
-                    self._browser_queue.task_done()
-            except asyncio.CancelledError:
-                await controller.close()
+        try:
+            async with async_playwright() as p:
+                controller = BrowserController(evasion_level=self._evasion_level, brute_auth=self.brute_auth, tor_mode=self.tor_mode)
+                await controller.start(p)
+                try:
+                    while True:
+                        url, token = await self._browser_queue.get()
+                        for f in await controller.scan_url(url, token):
+                            if f["type"] == "vulnerability": self._vulnerabilities.append(f)
+                            await self._results_queue.put(f)
+                        self._browser_queue.task_done()
+                except asyncio.CancelledError:
+                    await asyncio.shield(controller.close())
+                except Exception as e:
+                    if "EPIPE" not in str(e):
+                        logger.error(f"[BrowserWorker] Unexpected error: {e}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            if "EPIPE" not in str(e):
+                logger.error(f"[BrowserWorker] Setup error: {e}")
 
     async def cancel(self) -> None:
         self._cancelled = True

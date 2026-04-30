@@ -5,8 +5,6 @@ import os
 import sys
 from pathlib import Path
 
-# project root and src are on sys.path
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 _ROOT = Path(__file__).resolve().parent
 _SRC = _ROOT / "src"
 if str(_SRC) not in sys.path:
@@ -15,9 +13,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
-# create mandatory directories on every startup
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-from core.paths import REPORTS_DIR, TMP_DIR, ensure_dir  # noqa: E402
+from core.paths import REPORTS_DIR, TMP_DIR, ensure_dir
 
 ensure_dir(TMP_DIR)
 ensure_dir(REPORTS_DIR)
@@ -31,10 +27,10 @@ logger = logging.getLogger("whale")
 
 
 def main() -> None:
-    # Delegate all work to the Click command group in cli/commands.py
     if len(sys.argv) == 1:
         print(_BANNER)
         from cli.commands import cli
+
         try:
             cli(args=["--help"], standalone_mode=True)
         except SystemExit:
@@ -44,6 +40,7 @@ def main() -> None:
             print(_BANNER)
 
         from cli.commands import cli
+
         cli(standalone_mode=True)
 
 

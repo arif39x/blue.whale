@@ -1,21 +1,26 @@
-# Blue Whale
+# Project BlueWhale
 
 ![Blue Whale Logo](assets/Logo.png)
 
-**Blue Whale** is a high-performance, autonomous vulnerability finding tool for web-apps. It combines a blazing-fast Go engine with a Python orchestrator to perform deep security auditing, including SPA emulation and privilege escalation testing.
+**BlueWhale** is an advanced, high-fidelity vulnerability orchestration platform engineered for offensive-defensive auditing. It employs a **Kinetic-Cognitive** dual-core model, synchronizing a high-performance Go network engine with a Python-based Small Language Model (SLM) for semantic intent analysis and polymorphic execution.
 
 ---
 
-## Features
+## Core Philosophy
+> "Security is a temporary state of resistance. Nothing is absolute. There must be a vulnerability; BlueWhale will find it."
 
-- **Blazing Fast Crawling & Fuzzing:** High-concurrency Go engine for crawling and differential analysis.
-- **Advanced Headless Emulation:** Playwright integration with stealth plugins to bypass WAFs/Captchas, execute active DOM payloads, and loot client-side storage.
-- **Dynamic Session Pivoting:** Automatically detects leaked session tokens (like JWTs) and spawns isolated, authenticated contexts to test privilege escalation.
-- **Deep Deserialization & SSRF:** Recursive serialization mutation for JSON/GraphQL and dynamic OAST redirects for infrastructure testing (e.g., AWS Metadata extraction).
-- **Payload Templates:** Simple YAML files in `engine/templates/` let you easily add new vulnerability patterns.
-- **WAF Evasion:** Applies complex transform chains and automatically rotates User-Agents/headers to stay under the radar.
+---
 
-> **Note:** For a complete breakdown of the system components and data flow, please read the [**System Architecture Guide**](ARCHITECTURE.md).
+## High-Fidelity Features
+
+- **Kinetic-Cognitive Orchestration:** Asynchronous IPC between the Python "Brain" and Go "Executor" for real-time intent serialization and defensive neutralization.
+- **Defensive Neutralization Matrix:**
+  - **Gaussian Jitter:** Statistical pacing using $T_{request} = \mu + \sigma \cdot N(0, 1)$ to evade anycast-based anomaly detection.
+  - **TLS Fingerprinting:** Dynamic JA3/JA4 spoofing to mimic legitimate browser stacks (Chrome, Firefox, Safari).
+  - **Semantic Mutator:** SLM-driven polymorphic mutation for WAF rule evasion (e.g., `HAVING` clause injection, Unicode obfuscation).
+- **Identity Neutralization:** Deep-logic testing for JWT algorithm confusion, none-alg injection, and OAuth2 resilience.
+- **Recursive Headless Discovery:** Playwright-integrated SPA crawling to identify hidden API endpoints and DOM-based XSS.
+- **Out-of-Band (OAST) Correlation:** Integrated DNS/HTTP trigger correlation for blind SSRF and SQLi detection.
 
 ---
 
@@ -24,93 +29,76 @@
 ### Requirements
 
 - **Python 3.11+**
-- **Go 1.24+**
+- **Go 1.26.2+**
 
 ### Steps
 
-1. **Initialize Python Environment:**
-
+1. **Initialize Environment:**
    ```bash
-   python -m venv venv
+   python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
    ```
 
-2. **Setup Playwright (for DOM XSS & Stealth testing):**
-
+2. **Setup Headless Engine:**
    ```bash
    playwright install chromium
    ```
 
-3. **Build the Scanning Engine:**
+3. **Build Kinetic Core:**
    ```bash
-   python main.py bootstrap --force
+   python3 main.py bootstrap --force
    ```
 
 ---
 
-## How to Use
+## How to Use: The `whalerun` Directive
 
-### Basic Scan
+The `whalerun` command is the primary entry point for high-fidelity auditing.
 
-Fastest way to start scanning a target:
-
+### 1. Basic Audit
+Standard scan including recursive crawling and multi-vector fuzzing:
 ```bash
-python main.py scan --target http://example.com
+python3 main.py whalerun http://example.com
 ```
 
-### Advanced Scanning Profiles
-
-- **Aggressive:** Higher speed and deeper testing.
-  ```bash
-  python main.py scan -t http://example.com --profile aggressive
-  ```
-- **Stealth:** Slower speed with randomized delays to bypass WAFs.
-  ```bash
-  python main.py scan -t http://example.com --profile stealth --evasion-level high
-  ```
-
-### Authentication Resilience & Pivoting
-
-Test for credential stuffing on login forms and track privilege escalation:
-
+### 2. Stealth & Anonymity
+Activate Gaussian jitter, TLS fingerprinting, and Tor routing:
 ```bash
-python main.py scan -t http://example.com --brute-auth
+python3 main.py whalerun http://example.com --stealth --tor
 ```
 
-### Custom Headers
-
-Provide authorization tokens or session cookies:
-
+### 3. Authentication & Identity Testing
+Enable deep-logic testing for JWTs and authentication resilience:
 ```bash
-python main.py scan -t http://example.com -H "Cookie: session=123"
+python3 main.py whalerun http://example.com --brute-auth
+```
+
+### 4. Headless SPA Discovery (Looting)
+Extract client-side storage, cookies, and identify hidden API endpoints:
+```bash
+python3 main.py whalerun http://example.com --loot
 ```
 
 ---
 
 ## Command Reference
 
-### Scan Options
+| Flag | Feature | Impact |
+| :--- | :--- | :--- |
+| `--stealth` | Defensive Neutralization | Activates Gaussian Jitter and JA3 Fingerprinting. |
+| `--brute-auth`| Identity Neutralization | Executes JWT algorithm confusion and None-Alg testing. |
+| `--loot` | SPA API Discovery | Spawns headless workers for DOM execution and storage looting. |
+| `--tor` | Network Anonymity | Routes all traffic through SOCKS5 127.0.0.1:9050. |
+| `--action` | Scope Control | `crawl` (discovery), `fuzz` (vulnerability), or `both`. |
+| `-H, --header`| Custom Injection | Pass custom headers for authenticated sessions. |
 
-| Command           | Description                                   |
-| :---------------- | :-------------------------------------------- |
-| `-t, --target`    | The URL of the target website                 |
-| `--profile`       | `standard`, `aggressive`, or `stealth`        |
-| `--rpm`           | Set a specific speed (Requests Per Minute)    |
-| `--evasion-level` | Browser stealth level (`none`, `low`, `high`) |
-| `--brute-auth`    | Enable credential stuffing & auth testing     |
-| `--format`        | Output format (e.g., `pdf`, `json`)           |
-
-### Management
-
-| Command                                 | Description                            |
-| :-------------------------------------- | :------------------------------------- |
-| `python main.py report <results.jsonl>` | Convert scan results into a PDF report |
-| `python main.py bootstrap --force`      | Rebuild the internal Go engine binary  |
-| `python main.py paths`                  | Check and verify local system paths    |
+### System Management
+- `python3 main.py info`: Display hybrid-core architecture status.
+- `python3 main.py bootstrap`: Recompile the Kinetic Core binary.
+- `python3 main.py report <file>`: Generate a technical PDF/HTML report.
 
 ---
 
 ## Disclaimer
-
-Blue Whale is for **authorized security testing only**. Do not use it on systems you do not have explicit permission to test. The author is not responsible for any misuse or damage caused by this tool.
+BlueWhale is for **authorized security testing only**. The author is not responsible for any misuse or damage caused by this platform.

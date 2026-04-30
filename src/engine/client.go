@@ -38,7 +38,7 @@ type RawClient struct {
 }
 
 func (c *RawClient) dial(ctx context.Context, network, addr string) (net.Conn, error) {
-	// Check Tor Mode (SOCKS5 127.0.0.1:9050)
+	// Check Tor Mode
 	if c.TorMode {
 		dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:9050", nil, proxy.Direct)
 		if err != nil {
@@ -126,27 +126,16 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		}
 
 		if u.Scheme == "https" {
-			// Dynamic JA3 rotation
-			profiles := []utls.ClientHelloID{
-				utls.HelloChrome_120,
-				utls.HelloFirefox_105,
-				utls.HelloSafari_16_0,
-				utls.HelloEdge_106,
-			}
-			profile := profiles[rand.Intn(len(profiles))]
+			// Dynamic JA3 rotation using fingerprinter
+			profile := GetTLSProfile()
 			uconn := utls.UClient(conn, &utls.Config{
 				ServerName:         u.Hostname(),
 				InsecureSkipVerify: true,
 				NextProtos:         []string{"http/1.1"},
 			}, profile)
 
-			// Force H1.1 by modifying the ALPN extension in the UClient before handshake
-			if err := uconn.BuildHandshakeState(); err == nil {
-				for _, ext := range uconn.Extensions {
-					if alpn, ok := ext.(*utls.ALPNExtension); ok {
-						alpn.AlpnProtocols = []string{"http/1.1"}
-					}
-				}
+			if err := ApplyStealthTLS(uconn); err != nil {
+				fmt.Fprintf(os.Stderr, "[DEBUG] Failed to apply stealth TLS: %v\n", err)
 			}
 
 			if err := uconn.Handshake(); err != nil {
@@ -253,7 +242,7 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) // 1MB limit
 		resp.Body.Close()
 		conn.Close()
-		cancel() // Correct: cancel context after iteration
+		cancel() // cancel context after iteration
 
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to read body (attempt %d): %v\n", i+1, err)
@@ -265,7 +254,7 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 			c.Jar.SetCookies(u, resp.Cookies())
 		}
 
-		// Persistence: If blocked, rotate and retry
+		// Persistence If blocked, rotate and retry
 		if (resp.StatusCode == 403 || resp.StatusCode == 429) && i < maxRetries-1 {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Received status %d (attempt %d). Retrying...\n", resp.StatusCode, i+1)
 			if c.RateLimiter != nil {

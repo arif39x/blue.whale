@@ -19,12 +19,12 @@ import (
 type InMessage struct {
 	Type   string `msgpack:"type"`
 	Action string `msgpack:"action,omitempty"`
-	// scan_start
+
 	Targets []string   `msgpack:"targets,omitempty"`
 	Config  ScanConfig `msgpack:"config,omitempty"`
-	// fuzz_only nodes
+
 	Nodes []string `msgpack:"nodes,omitempty"`
-	// payload_response
+
 	Param    string   `msgpack:"param,omitempty"`
 	Payloads []string `msgpack:"payloads,omitempty"`
 }
@@ -177,7 +177,7 @@ func serve(socketPath string) {
 				}
 
 				if action == "fuzz" {
-					// Manually inject nodes if fuzzing only
+
 					for _, rawURL := range msg.Nodes {
 						u, _ := url.Parse(rawURL)
 						var params []string

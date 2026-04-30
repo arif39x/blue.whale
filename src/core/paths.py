@@ -13,21 +13,16 @@ DATA_DIR: Path = PROJECT_ROOT / "data"
 TMP_DIR: Path = DATA_DIR / "tmp"
 REPORTS_DIR: Path = PROJECT_ROOT / "reports"
 
-# Config file
 SETTINGS_FILE: Path = CONFIG_DIR / "settings.yaml"
 
-# Data assets
 USER_AGENTS_FILE: Path = DATA_DIR / "user_agents.txt"
 
-# Bash bridge scripts
 BOOTSTRAP_SCRIPT: Path = SH_DIR / "bootstrap.sh"
 
-# Compiled Go engine binary
 ENGINE_BINARY: Path = BIN_DIR / "whale-engine"
-
+BRAIN_BINARY: Path = BIN_DIR / "whale-brain"
 
 def require(path: Path) -> Path:
-    # Return *path* if it exists, else raise FileNotFoundError 
 
     if not path.exists():
         raise FileNotFoundError(
@@ -37,16 +32,12 @@ def require(path: Path) -> Path:
         )
     return path
 
-
 def ensure_dir(path: Path) -> Path:
-    # Create *path* as a directory (and parents) if it does not exist.
 
     path.mkdir(parents=True, exist_ok=True)
     return path
 
-
 def all_paths() -> dict[str, Path]:
-    # Return a mapping of all key paths (useful for debugging).
 
     return {
         "PROJECT_ROOT": PROJECT_ROOT,
@@ -60,8 +51,8 @@ def all_paths() -> dict[str, Path]:
         "USER_AGENTS_FILE": USER_AGENTS_FILE,
         "BOOTSTRAP_SCRIPT": BOOTSTRAP_SCRIPT,
         "ENGINE_BINARY": ENGINE_BINARY,
+        "BRAIN_BINARY": BRAIN_BINARY,
     }
-
 
 if __name__ == "__main__":
     for name, p in all_paths().items():

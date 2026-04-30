@@ -1,237 +1,3 @@
-from __future__ import annotations
-
-import asyncio
-import base64
-import json
-import logging
-import re
-import uuid
-from pathlib import Path
-from typing import AsyncIterator
-
-import yaml
-from playwright.async_api import async_playwright
-
-from core.bridge import EngineBridge, EngineError, BrainBridge
-from core.mutator import Mutator
-from core.oast import OASTServer
-from core.paths import DATA_DIR, SETTINGS_FILE, TMP_DIR, ensure_dir
-
-logger = logging.getLogger(__name__)
-
-def _load_settings() -> dict:
-    with open(SETTINGS_FILE) as f:
-        return yaml.safe_load(f)
-
-def _load_user_agents() -> list[str]:
-    ua_file = DATA_DIR / "user_agents.txt"
-    if ua_file.exists():
-        try:
-            uas = [
-                l.strip()
-                for l in ua_file.read_text().splitlines()
-                if l.strip() and not l.startswith("#")
-            ]
-            if uas:
-                return uas
-        except Exception:
-            pass
-    return [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ]
-
-class BrowserController:
-    """Headless browser worker for stealth scanning, looting, and auth testing."""
-
-    DEFAULT_STEALTH_JS = """
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        window.chrome = { runtime: {} };
-        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-
-        // Mocking hardware concurrency and memory
-        Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
-        Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
-
-        const originalGetImageData = CanvasRenderingContext2D.prototype.getImageData;
-        CanvasRenderingContext2D.prototype.getImageData = function(x, y, w, h) {
-            const data = originalGetImageData.apply(this, arguments);
-            data.data[0] = data.data[0] + (Math.random() > 0.5 ? 1 : -1);
-            return data;
-        };
-    """
-
-    def __init__(
-        self,
-        evasion_level: str = "high",
-        brute_auth: bool = False,
-        tor_mode: bool = False,
-    ):
-        self.evasion_level = evasion_level
-        self.brute_auth = brute_auth
-        self.tor_mode = tor_mode
-        self._browser = None
-        self._context = None
-
-    async def start(self, playwright):
-        self._browser = await playwright.chromium.launch(headless=True)
-        proxy = None
-        if self.tor_mode:
-            proxy = {"server": "socks5://127.0.0.1:9050"}
-
-        import random
-
-        w = random.choice([1920, 1440, 1366])
-        h = random.choice([1080, 900, 768])
-
-        self._context = await self._browser.new_context(
-            user_agent=_load_user_agents()[
-                random.randint(0, len(_load_user_agents()) - 1)
-            ],
-            viewport={"width": w, "height": h},
-            proxy=proxy,
-            device_scale_factor=random.choice([1, 2]),
-            has_touch=random.choice([True, False]),
-        )
-        if self.evasion_level != "none":
-            await self._context.add_init_script(self.DEFAULT_STEALTH_JS)
-
-    async def close(self):
-        if self._browser:
-            await self._browser.close()
-
-    async def scan_url(self, url: str, token: str | None = None) -> list[dict]:
-        findings = []
-        page = await self._context.new_page()
-
-        page.on(
-            "dialog",
-            lambda d: findings.append(
-                {
-                    "type": "vulnerability",
-                    "id": "dom-xss",
-                    "name": "DOM-based Cross-Site Scripting",
-                    "severity": "high",
-                    "url": url,
-                    "evidence": d.message,
-                }
-            ),
-        )
-
-        try:
-            if token:
-                domain = url.split("/")[2].split(":")[0]
-                await self._context.add_cookies(
-                    [
-                        {
-                            "name": "session_token",
-                            "value": token,
-                            "domain": domain,
-                            "path": "/",
-                        }
-                    ]
-                )
-
-            fuzz_url = (
-                url
-                + ("&" if "?" in url else "?")
-                + "fuzz=<img src=x onerror=alert('DOM_XSS')>"
-            )
-            await page.goto(fuzz_url, timeout=15000, wait_until="networkidle")
-
-            if token:
-                await page.evaluate(f"localStorage.setItem('auth_token', '{token}');")
-
-            storage_data = await page.evaluate("""async () => {
-                let dbs = [];
-                try { if (window.indexedDB && indexedDB.databases) dbs = await indexedDB.databases(); } catch(e) {}
-                return {
-                    localStorage: JSON.stringify(localStorage),
-                    sessionStorage: JSON.stringify(sessionStorage),
-                    cookies: document.cookie,
-                    indexedDB: JSON.stringify(dbs)
-                };
-            }""")
-
-            if storage_data:
-                findings.append({"type": "loot", "url": url, "data": storage_data})
-
-            await page.goto(
-                url + ("&" if "?" in url else "?") + "__proto__[bw_p]=p",
-                timeout=10000,
-                wait_until="networkidle",
-            )
-            if await page.evaluate("() => window.bw_p === 'p' || {}.bw_p === 'p'"):
-                findings.append(
-                    {
-                        "type": "vulnerability",
-                        "id": "proto-pollution",
-                        "name": "Prototype Pollution",
-                        "severity": "medium",
-                        "url": url,
-                        "evidence": "window.bw_p detected",
-                    }
-                )
-
-            if self.brute_auth and await page.locator("input[type=password]").count() > 0:
-                findings.append(
-                    {
-                        "type": "vulnerability",
-                        "id": "auth-resilience",
-                        "name": "Authentication Resilience",
-                        "severity": "info",
-                        "url": url,
-                        "evidence": "Login form detected; monitored for WAF/lockout resilience.",
-                    }
-                )
-
-        except Exception as e:
-            logger.debug(f"[Browser] Error {url}: {e}")
-        finally:
-            await page.close()
-
-        return findings
-
-class JWTDeepTester:
-    """Performs deep logic testing on JWT tokens for algorithm confusion and none-alg injection."""
-
-    def __init__(self, mutator: Mutator):
-        self.mutator = mutator
-
-    def test_token(self, token: str) -> list[str]:
-        payloads = []
-        try:
-            parts = token.split(".")
-            if len(parts) != 3:
-                return []
-
-            header_b64, body_b64, sig_b64 = parts
-            header = json.loads(base64.urlsafe_b64decode(header_b64 + "==").decode())
-
-            for alg in ["none", "None", "NONE", "nOnE"]:
-                h = header.copy()
-                h["alg"] = alg
-                new_h = (
-                    base64.urlsafe_b64encode(json.dumps(h).encode()).decode().strip("=")
-                )
-                payloads.append(f"{new_h}.{body_b64}.")
-
-            if header.get("alg") == "RS256":
-                h = header.copy()
-                h["alg"] = "HS256"
-                new_h = (
-                    base64.urlsafe_b64encode(json.dumps(h).encode()).decode().strip("=")
-                )
-                payloads.append(
-                    f"{new_h}.{body_b64}.{sig_b64}"
-                )
-
-        except Exception:
-            pass
-        return payloads
-
 class ScanExecutor:
     """Main orchestrator for hybrid Go/Python security scanning."""
 
@@ -252,11 +18,6 @@ class ScanExecutor:
         cfg = _load_settings()
         self.target = target
         self.header = header
-        self.sessions = cfg.get("sessions", {"default": {}})
-        if header:
-            if ":" in header:
-                k, v = header.split(":", 1)
-                self.sessions["default"][k.strip()] = v.strip()
         self.rps = rps or float(cfg["scan"]["default_rps"])
         self.timeout = timeout or cfg["scan"]["timeout_seconds"]
         self.severity = severity or cfg["scan"]["severity_filter"]
@@ -287,8 +48,7 @@ class ScanExecutor:
         self._cancelled = False
         self._vulnerabilities = []
         self._pivoted_sessions = set()
-        self._bridges = []
-        self._brain = None
+        self._current_bridge = None
 
     async def run(self) -> AsyncIterator[dict]:
         ensure_dir(TMP_DIR / self.job_id)
@@ -302,23 +62,7 @@ class ScanExecutor:
             self._config["oast"]["http_port"], self._config["oast"]["dns_port"]
         )
 
-        llm_cfg = self._config.get("llm", {})
-        if llm_cfg.get("enabled", False):
-            try:
-                self._brain = BrainBridge(
-                    ollama_url=llm_cfg.get("ollama_url"),
-                    model=llm_cfg.get("models") or [llm_cfg.get("preferred_model")],
-                    socket_path=TMP_DIR / "brain.sock"
-                )
-                await self._brain._spawn()
-            except Exception as e:
-                logger.error(f"[bridge] Failed to start brain: {e}")
-                self._brain = None
-
-        workers = []
-        for session_name, headers in self.sessions.items():
-            workers.append(asyncio.create_task(self._bridge_worker(session_name, headers)))
-
+        workers = [asyncio.create_task(self._bridge_worker())]
         if self.action in ("scan", "loot", "both"):
             for _ in range(self._browser_workers_count):
                 workers.append(asyncio.create_task(self._browser_worker()))
@@ -340,28 +84,6 @@ class ScanExecutor:
                     break
 
                 if msg_type in ("loot", "vulnerability"):
-                    if msg_type == "vulnerability":
-
-                        body = msg.get("body", "")
-                        baseline = msg.get("baseline", "")
-
-                        if "semantic change" in msg.get("evidence", "").lower() and body and baseline:
-                            from core.parser import hash_dom
-                            if hash_dom(body) == hash_dom(baseline):
-                                logger.info("[Semantic] False positive rejected via DOM hash match.")
-                                self._results_queue.task_done()
-                                continue
-
-                        if self._brain:
-                            analysis = await self._brain.analyze(
-                                msg.get("evidence", ""), msg.get("name", "vulnerability")
-                            )
-                            msg["ai_analysis"] = analysis
-                            if "false positive" in analysis.lower():
-                                logger.info("[SLM Gate] AI rejected vulnerability as false positive.")
-                                self._results_queue.task_done()
-                                continue
-
                     evidence = str(msg.get("data", "")) + str(msg.get("evidence", ""))
 
                     patterns = [
@@ -391,12 +113,7 @@ class ScanExecutor:
             logger.error("[%s] Fatal error: %s", self.job_id, e)
             yield {"type": "error", "message": str(e)}
         finally:
-            for b in self._bridges:
-                await b.close()
-            self._bridges.clear()
-            if self._brain:
-                await self._brain.close()
-                self._brain = None
+            self._current_bridge = None
             for t in workers:
                 t.cancel()
             await self._oast_server.stop()
@@ -419,10 +136,34 @@ class ScanExecutor:
                 )
             await asyncio.sleep(2)
 
-    async def _bridge_worker(self, session_name: str, headers: dict):
+    async def _bridge_worker(self):
         try:
+            headers = {}
+            if self.header:
+                if ":" in self.header:
+                    k, v = self.header.split(":", 1)
+                    headers[k.strip()] = v.strip()
+                else:
+                    logger.warning("Invalid header format: %s", self.header)
+
+            llm_cfg = self._config.get("llm", {})
+            brain_enabled = llm_cfg.get("enabled", False)
+
             async with EngineBridge() as bridge:
-                self._bridges.append(bridge)
+                self._current_bridge = bridge
+
+                brain = None
+                if brain_enabled:
+                    try:
+                        brain = BrainBridge(
+                            ollama_url=llm_cfg.get("ollama_url"),
+                            model=llm_cfg.get("preferred_model"),
+                            socket_path=TMP_DIR / "brain.sock"
+                        )
+                        await brain._spawn()
+                    except Exception as e:
+                        logger.error(f"[bridge] Failed to start brain: {e}")
+                        brain = None
 
                 await bridge.send(
                     {
@@ -464,11 +205,11 @@ class ScanExecutor:
 
                         for cat in ["sqli", "xss", "ssti", "ssrf", "xxe"]:
 
-                            if self._brain:
+                            if brain:
                                 seeds = self._mutator.corpus_mutations(cat, max_transforms=1)
                                 try:
                                     seed = next(seeds)["payload"]
-                                    mutations = await self._brain.mutate(seed, cat, p)
+                                    mutations = await brain.mutate(seed, cat, p)
                                     high_priority.extend(mutations)
                                 except:
                                     pass

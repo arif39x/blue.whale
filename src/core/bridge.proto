@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package bluewhale.ipc;
+
+option go_package = "bluewhale/engine/pb";
+
+service EngineService {
+  // Starts the scanning process.
+  rpc StartScan(ScanRequest) returns (stream ScanEvent) {}
+  
+  // Sends a payload response back to the engine.
+  rpc SendPayload(PayloadResponse) returns (Ack) {}
+}
+
+service BrainService {
+  // Requests polymorphic mutations from the SLM.
+  rpc Mutate(MutateRequest) returns (MutateResponse) {}
+  
+  // Semantic verification sanity check.
+  rpc Analyze(AnalyzeRequest) returns (AnalyzeResponse) {}
+}
+
+message Empty {}
+message Ack { bool success = 1; }
+
+message ScanRequest {
+  string action = 1;
+  repeated string targets = 2;
+  repeated string nodes = 3;
+  ScanConfig config = 4;
+}
+
+message ScanConfig {
+  int32 workers = 1;
+  int32 max_depth = 2;
+  repeated string user_agents = 3;
+  map<string, string> headers = 4;
+  double rps = 5;
+  int32 timeout_seconds = 6;
+  bool tor_mode = 7;
+  bool stealth_mode = 8;
+  bool jitter = 9;
+  repeated string proxies = 10;
+  int32 cooldown_seconds = 11;
+}
+
+message ScanEvent {
+  string type = 1;
+  string phase = 2;
+  string detail = 3;
+  int32 progress = 4;
+  
+  // Used for vulnerabilities and nodes
+  string id = 5;
+  string name = 6;
+  string severity = 7;
+  string url = 8;
+  string param = 9;
+  string payload = 10;
+  string evidence = 11;
+  string body = 12;
+  string baseline = 13;
+  
+  // Apache Arrow shared memory handle for large loot/DOM data
+  string arrow_ipc_handle = 14; 
+}
+
+message PayloadResponse {
+  string param = 1;
+  repeated string payloads = 2;
+}
+
+message MutateRequest {
+  string payload = 1;
+  string category = 2;
+  string context = 3;
+}
+
+message MutateResponse {
+  repeated string results = 1;
+}
+
+message AnalyzeRequest {
+  string payload = 1;
+  string category = 2;
+}
+
+message AnalyzeResponse {
+  string analysis = 1;
+}

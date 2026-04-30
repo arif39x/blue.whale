@@ -37,7 +37,6 @@ from core.reporter import Reporter
 
 console = Console()
 
-
 def _setup_logging(verbose: bool) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
@@ -45,7 +44,6 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
         datefmt="%H:%M:%S",
     )
-
 
 _SEV_COLORS = {
     "critical": "bold red",
@@ -55,12 +53,10 @@ _SEV_COLORS = {
     "info": "cyan",
 }
 
-
 def _print_finding(f) -> None:
     sev = f.severity.value if hasattr(f.severity, "value") else str(f.severity)
     color = _SEV_COLORS.get(sev.lower(), "white")
     console.print(f"  [{color}][{sev.upper():8s}][/{color}]  {f.name:<40s}  {f.url}")
-
 
 def _print_node(msg: dict) -> None:
     url = msg.get("url", "")
@@ -71,7 +67,6 @@ def _print_node(msg: dict) -> None:
     console.print(
         f"  [bold green][+] NODE_DISCOVERED (d={depth} s={score:.1f})[/bold green] {url}{param_str}"
     )
-
 
 def _print_summary(parser: ResultParser) -> None:
     stats = parser.stats
@@ -95,13 +90,11 @@ def _print_summary(parser: ResultParser) -> None:
     console.print("\n")
     console.print(table)
 
-
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option("4.0.0", prog_name="BlueWhale")
 def cli() -> None:
     """Project BlueWhale: Advanced Hybrid-Core Vulnerability Orchestration Platform."""
     pass
-
 
 @cli.command("whalerun")
 @click.argument("target")
@@ -129,8 +122,8 @@ def cmd_whalerun(
     verbose: bool,
 ) -> None:
     """Execute a high-fidelity resilience audit against the specified target."""
-    header_str = header[0] if header else None 
-    
+    header_str = header[0] if header else None
+
     _run_core_scan(
         target=target,
         header=header_str,
@@ -145,7 +138,6 @@ def cmd_whalerun(
         show_nodes=verbose
     )
 
-
 @cli.command("info")
 def cmd_info():
     """Display the BlueWhale core architecture status and version info."""
@@ -158,10 +150,8 @@ def cmd_info():
         title="System Specification",
         expand=False
     ))
-    # Call paths logic to show health
+
     cmd_paths.callback()
-
-
 
 def _run_core_scan(
     target: str,
@@ -197,7 +187,6 @@ def _run_core_scan(
             )
             sys.exit(1)
 
-    # Conversion logic: RPM takes precedence over RPS if provided
     final_rps: float
     if rpm is not None:
         final_rps = rpm / 60.0
@@ -280,6 +269,14 @@ def _run_core_scan(
                         finding = parser.ingest(json.dumps(synthetic))
                         if finding:
                             _print_finding(finding)
+
+                        if msg.get("ai_analysis"):
+                            console.print(Panel(
+                                f"[dim]{msg.get('ai_analysis')}[/dim]",
+                                border_style="cyan",
+                                title="[bold cyan]Brain Verification[/bold cyan]",
+                                expand=False
+                            ))
 
                     elif msg_type == "loot":
                         url = msg.get("url")
@@ -400,7 +397,7 @@ def _run_core_scan(
         _print_summary(parser)
 
     if not dry_run:
-        # Always export JSONL for raw data persistence
+
         json_path = out_dir / f"whale_{executor.job_id}.jsonl"
         parser.export_jsonl(json_path)
         console.print(f"\n  [cyan]Raw JSONL results[/cyan] -> {json_path}")
@@ -408,7 +405,7 @@ def _run_core_scan(
         if action in ("fuzz", "both"):
             reporter = Reporter(target=target, job_id=executor.job_id)
             reporter.load_from_parser(parser)
-            
+
             if fmt == "txt":
                 path = reporter.export_txt(out_dir)
                 console.print(f"  [cyan]Text report[/cyan]       -> {path}")
@@ -416,9 +413,8 @@ def _run_core_scan(
                 path = reporter.export_md(out_dir)
                 console.print(f"  [cyan]Markdown report[/cyan]   -> {path}")
             elif fmt == "jsonl":
-                # Already exported above, but we can clarify
-                console.print(f"  [cyan]Report finalized in JSONL format.[/cyan]")
 
+                console.print(f"  [cyan]Report finalized in JSONL format.[/cyan]")
 
 @cli.command("report")
 @click.argument("results_file", type=click.Path(exists=True, path_type=Path))
@@ -458,7 +454,6 @@ def cmd_report(
         console.print("  [bold red]Report generation failed.[/bold red]")
         sys.exit(1)
 
-
 @cli.command("bootstrap")
 @click.option(
     "--force", is_flag=True, default=False, help="Rebuild engine even if binary exists."
@@ -469,7 +464,6 @@ def cmd_bootstrap(force: bool) -> None:
         args.append("--force")
     result = subprocess.run(args, check=False)
     sys.exit(result.returncode)
-
 
 @cli.command("paths")
 def cmd_paths() -> None:

@@ -22,6 +22,8 @@ type VulnerabilityMsg struct {
 	Param    string `msgpack:"param"`
 	Payload  string `msgpack:"payload"`
 	Evidence string `msgpack:"evidence"`
+	Body     string `msgpack:"body"`
+	Baseline string `msgpack:"baseline"`
 }
 
 type StateMachine struct {
@@ -318,7 +320,7 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 							if resp.StatusCode != ep.Baseline.StatusCode {
 								if (ep.Baseline.StatusCode < 400 && resp.StatusCode >= 500) ||
 									(ep.Baseline.StatusCode >= 400 && resp.StatusCode < 300) {
-									sm.ReportVulnerability(t, targetURL, param, payload, fmt.Sprintf("Status code changed from %d to %d (Significant)", ep.Baseline.StatusCode, resp.StatusCode))
+									sm.ReportVulnerability(t, targetURL, param, payload, fmt.Sprintf("Status code changed from %d to %d (Significant)", ep.Baseline.StatusCode, resp.StatusCode), string(resp.Body), string(ep.Baseline.Body))
 								}
 							}
 
@@ -327,7 +329,7 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 							if baseLen > 500 {
 								diff := (currLen - baseLen) / baseLen
 								if diff > 0.5 || diff < -0.5 {
-									sm.ReportVulnerability(t, targetURL, param, payload, fmt.Sprintf("Response size changed significantly (%.1f%% difference)", diff*100))
+									sm.ReportVulnerability(t, targetURL, param, payload, "Possible semantic change detected", string(resp.Body), string(ep.Baseline.Body))
 								}
 							}
 						}
@@ -338,7 +340,7 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 								for _, word := range matcher.Words {
 									if strings.Contains(body, word) {
 										matched = true
-										sm.ReportVulnerability(t, targetURL, param, payload, word)
+										sm.ReportVulnerability(t, targetURL, param, payload, word, body, "")
 										break
 									}
 								}
@@ -354,7 +356,7 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 	}
 }
 
-func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payload, evidence string) {
+func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payload, evidence, body, baseline string) {
 
 	if strings.Contains(t.ID, "lfi") || strings.Contains(t.ID, "sqli") || strings.Contains(t.ID, "rce") {
 		u, _ := url.Parse(targetURL)
@@ -366,9 +368,9 @@ func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payloa
 		resp, err := sm.client.Do("GET", u.String(), sm.headers, nil)
 		if err == nil {
 			if resp.StatusCode == 403 || resp.StatusCode == 429 {
-				// Potential WAF, keep finding
+
 			} else if strings.Contains(string(resp.Body), evidence) || (resp.StatusCode == 200 && strings.Contains(evidence, "Status code")) {
-				return // Likely honeypot
+				return
 			}
 		}
 	}
@@ -382,18 +384,19 @@ func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payloa
 		Param:    param,
 		Payload:  payload,
 		Evidence: evidence,
+		Body:     body,
+		Baseline: baseline,
 	})
 
-	// Chain Reaction Logic - SSRF Ensure chain probes use SSRF endpoint
 	if strings.Contains(t.ID, "ssrf") {
 		internalPorts := []string{"22", "80", "443", "6379", "8080", "9000"}
 		for _, port := range internalPorts {
-			// Probe internal network THROUGH the SSRF vulnerability
+
 			u, _ := url.Parse(targetURL)
 			q := u.Query()
 			q.Set(param, fmt.Sprintf("http://127.0.0.1:%s/", port))
 			u.RawQuery = q.Encode()
-			// Report it or queue it for differential analysis
+
 			sm.ProcessNode(u.String(), nil, []string{"internal-pivot"}, nil)
 		}
 	}

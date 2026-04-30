@@ -53,19 +53,19 @@ class OASTServer:
         addr = writer.get_extra_info("peername")
         data = await reader.read(4096)
         request = data.decode(errors="replace")
-        
+
         host = next((l.split(":", 1)[1].strip() for l in request.splitlines() if l.lower().startswith("host:")), "unknown")
         identifier = host.split(".")[0]
-        
+
         self.events.append(OASTEvent("HTTP", addr[0], identifier, request))
         logger.warning(f"[OAST] HTTP callback from {addr[0]} for {identifier}")
-        
+
         if "ssrf" in identifier:
             logger.info(f"[OAST] Triggering SSRF Escalation for {identifier}")
             writer.write(f"HTTP/1.1 301 Moved Permanently\r\nLocation: {self.SSRF_REDIRECT_TARGET}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".encode())
         else:
             writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            
+
         await writer.drain()
         writer.close()
 
@@ -83,8 +83,7 @@ class DNSResponder(asyncio.DatagramProtocol):
             qname = str(record.q.qname).strip(".")
             parts = qname.split(".")
             identifier = parts[0]
-            
-            # Extract identifier before known OAST domain
+
             domain_parts = self.server.domain.split(".")
             for i, p in enumerate(parts):
                 if p == domain_parts[0] and i > 0:

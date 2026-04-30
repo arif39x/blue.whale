@@ -45,7 +45,7 @@ class Reporter:
 
     def _render_txt(self) -> str:
         from core.parser import Severity
-        
+
         stats = {s.value: 0 for s in Severity}
         for f in self._findings:
             stats[f.severity.value] = stats.get(f.severity.value, 0) + 1
@@ -87,7 +87,7 @@ class Reporter:
 
     def _render_md(self) -> str:
         from core.parser import Severity
-        
+
         stats = {s.value: 0 for s in Severity}
         for f in self._findings:
             stats[f.severity.value] = stats.get(f.severity.value, 0) + 1

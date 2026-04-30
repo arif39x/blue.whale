@@ -18,7 +18,7 @@ import (
 
 type InMessage struct {
 	Type   string `msgpack:"type"`
-	Action string `msgpack:"action,omitempty"` // crawl, fuzz, both
+	Action string `msgpack:"action,omitempty"`
 	// scan_start
 	Targets []string   `msgpack:"targets,omitempty"`
 	Config  ScanConfig `msgpack:"config,omitempty"`
@@ -89,7 +89,6 @@ func emit(v any) {
 }
 
 func serve(socketPath string) {
-	// Check if src/engine/templates exists
 	if _, err := os.Stat("src/engine/templates"); os.IsNotExist(err) {
 		log.Printf("Error: src/engine/templates directory not found in current working directory (%s)", os.Getenv("PWD"))
 	}

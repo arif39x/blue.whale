@@ -60,10 +60,16 @@ func (hrl *HostRateLimiter) Wait(host string, rps int) {
 		<-tickerC
 	}
 
-	// Apply jitter AFTER ticker to spread out requests further
+	// Apply Gaussian Jitter AFTER ticker to spread out requests further
+	// T_request = mu + sigma * N(0, 1)
 	if hrl.Jitter {
-		jitter := time.Duration(float64(rl.duration) * rand.Float64())
-		time.Sleep(jitter)
+		mu := float64(rl.duration)
+		sigma := mu * 0.3 // 30% standard deviation
+		jitter := mu + (sigma * rand.NormFloat64())
+		if jitter < 0 {
+			jitter = 0
+		}
+		time.Sleep(time.Duration(jitter))
 	}
 }
 

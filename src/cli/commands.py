@@ -96,173 +96,71 @@ def _print_summary(parser: ResultParser) -> None:
     console.print(table)
 
 
-@click.group()
-@click.version_option("2.0.0", prog_name="whale")
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.version_option("4.0.0", prog_name="BlueWhale")
 def cli() -> None:
+    """Project BlueWhale: Advanced Hybrid-Core Vulnerability Orchestration Platform."""
     pass
 
 
-@cli.command("scan")
-@click.option("--target", "-t", required=True, help="Target URL to scan.")
-@click.option(
-    "--header",
-    "-H",
-    default=None,
-    help="Custom HTTP header (e.g., Cookie: session=abc)",
-)
-@click.option(
-    "--rps", default=None, type=float, help="Requests per second (overrides config)."
-)
-@click.option(
-    "--rpm", default=None, type=float, help="Requests per minute (overrides rps)."
-)
-@click.option("--timeout", default=None, type=int, help="Hard timeout in seconds.")
-@click.option(
-    "--severity",
-    default=None,
-    help="Comma-separated severity filter, e.g. critical,high",
-)
-@click.option("--output", "-o", default=None, help="Output directory for reports.")
-@click.option(
-    "--format",
-    "fmt",
-    default="html",
-    type=click.Choice(["json", "csv", "pdf", "html"]),
-    show_default=True,
-)
-@click.option(
-    "--profile",
-    default=None,
-    help="Scan profile from settings.yaml (e.g. full, fast, stealth)",
-)
-@click.option(
-    "--evasion-level",
-    default="high",
-    type=click.Choice(["none", "low", "high"]),
-    help="Browser stealth level.",
-)
-@click.option(
-    "--brute-auth",
-    is_flag=True,
-    default=False,
-    help="Enable credential stuffing if breach detected.",
-)
-@click.option(
-    "--show-nodes",
-    is_flag=True,
-    default=False,
-    help="Print discovered endpoint nodes live.",
-)
-@click.option(
-    "--dry-run",
-    is_flag=True,
-    default=False,
-    help="Print plan without running the scan.",
-)
-@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy URL.")
-@click.option("--tor", is_flag=True, default=False, help="Route traffic through local Tor daemon.")
-@click.option("--verbose", "-v", is_flag=True, default=False)
-def cmd_scan(
+@cli.command("whalerun")
+@click.argument("target")
+@click.option("--brute-auth", is_flag=True, help="Enable deep authentication resilience & credential logic testing.")
+@click.option("--stealth", is_flag=True, help="Activate Gaussian jitter, TLS fingerprinting, and UA rotation.")
+@click.option("--tor", is_flag=True, help="Route all traffic through the Tor network (SOCKS5 127.0.0.1:9050).")
+@click.option("--loot", is_flag=True, help="Enable headless SPA discovery and client-side storage extraction.")
+@click.option("--header", "-H", multiple=True, help="Custom HTTP headers (e.g., 'Authorization: Bearer ...').")
+@click.option("--rps", type=float, help="Requests per second limit (default from settings.yaml).")
+@click.option("--output", "-o", help="Output directory for reports.")
+@click.option("--format", "fmt", type=click.Choice(["txt", "md", "jsonl"]), default="txt", help="Primary report format.")
+@click.option("--action", type=click.Choice(["crawl", "fuzz", "both"]), default="both", help="Scope of the orchestration.")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose debug logging.")
+def cmd_whalerun(
     target: str,
-    header: str | None,
+    brute_auth: bool,
+    stealth: bool,
+    tor: bool,
+    loot: bool,
+    header: tuple[str, ...],
     rps: float | None,
-    rpm: float | None,
-    timeout: int | None,
-    severity: str | None,
     output: str | None,
     fmt: str,
-    profile: str | None,
-    evasion_level: str,
-    brute_auth: bool,
-    show_nodes: bool,
-    dry_run: bool,
-    proxy: str | None,
-    tor: bool,
+    action: str,
     verbose: bool,
 ) -> None:
-    """Complete hybrid scan (crawl + fuzz + loot)."""
+    """Execute a high-fidelity resilience audit against the specified target."""
+    header_str = header[0] if header else None 
+    
     _run_core_scan(
         target=target,
-        header=header,
+        header=header_str,
         rps=rps,
-        rpm=rpm,
-        timeout=timeout,
-        severity=severity,
+        evasion_level="high" if stealth else "none",
+        brute_auth=brute_auth,
+        tor=tor,
+        action="loot" if loot and action == "both" else action,
         output=output,
         fmt=fmt,
-        profile=profile,
-        evasion_level=evasion_level,
-        brute_auth=brute_auth,
-        show_nodes=show_nodes,
-        dry_run=dry_run,
-        proxy=proxy,
-        tor=tor,
-        action="both",
-        verbose=verbose
+        verbose=verbose,
+        show_nodes=verbose
     )
 
 
-@cli.command("crawl")
-@click.option("--target", "-t", required=True, help="Target URL to crawl.")
-@click.option("--header", "-H", default=None, help="Custom HTTP header.")
-@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy URL.")
-@click.option("--tor", is_flag=True, default=False, help="Route traffic through local Tor daemon.")
-@click.option("--timeout", default=None, type=int, help="Hard timeout in seconds.")
-@click.option("--rps", default=None, type=float, help="Requests per second.")
-@click.option(
-    "--show-nodes",
-    is_flag=True,
-    default=True,
-    help="Print discovered endpoint nodes live.",
-)
-@click.option("--output", "-o", default=None, help="Output directory.")
-@click.option("--verbose", "-v", is_flag=True, default=False)
-def cmd_crawl(target: str, header: str | None, proxy: str | None, tor: bool, timeout: int | None, rps: float | None, show_nodes: bool, output: str | None, verbose: bool):
-    """Perform spidering and discovery only."""
-    _run_core_scan(target=target, header=header, action="crawl", proxy=proxy, tor=tor, timeout=timeout, rps=rps, output=output, verbose=verbose, show_nodes=show_nodes)
+@cli.command("info")
+def cmd_info():
+    """Display the BlueWhale core architecture status and version info."""
+    console.print(Panel(
+        "[bold cyan]BlueWhale Advanced Hybrid-Core[/bold cyan]\n"
+        "[bold white]Version:[/bold white] 4.0.0-R&D\n"
+        "[bold white]Engine:[/bold white] Kinetic (Go) v4.0.0\n"
+        "[bold white]Brain:[/bold white] Cognitive (Python SLM) v4.0.0\n"
+        "[bold white]Status:[/bold white] [green]Operational[/green]",
+        title="System Specification",
+        expand=False
+    ))
+    # Call paths logic to show health
+    cmd_paths.callback()
 
-
-@cli.command("fuzz")
-@click.option("--nodes", "-n", required=True, type=click.Path(exists=True), help="File containing URLs.")
-@click.option("--header", "-H", default=None, help="Custom HTTP header.")
-@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy URL.")
-@click.option("--tor", is_flag=True, default=False, help="Route traffic through local Tor daemon.")
-@click.option("--severity", default=None, help="Severity filter.")
-@click.option("--rps", default=None, type=float, help="Requests per second.")
-@click.option("--output", "-o", default=None, help="Output directory.")
-@click.option("--verbose", "-v", is_flag=True, default=False)
-def cmd_fuzz(nodes: str, header: str | None, proxy: str | None, tor: bool, severity: str | None, rps: float | None, output: str | None, verbose: bool):
-    """Perform vulnerability fuzzing on a list of nodes."""
-    node_list = Path(nodes).read_text().splitlines()
-    _run_core_scan(target="fuzz_session", header=header, nodes=node_list, action="fuzz", proxy=proxy, tor=tor, severity=severity, rps=rps, output=output, verbose=verbose)
-
-
-@cli.command("loot")
-@click.option("--target", "-t", required=True, help="Target URL to loot.")
-@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy URL.")
-@click.option("--tor", is_flag=True, default=False, help="Route traffic through local Tor daemon.")
-@click.option(
-    "--evasion-level",
-    default="high",
-    type=click.Choice(["none", "low", "high"]),
-    help="Browser stealth level.",
-)
-@click.option("--verbose", "-v", is_flag=True, default=False)
-def cmd_loot(target: str, proxy: str | None, tor: bool, evasion_level: str, verbose: bool):
-    """Run headless browser to extract storage and cookies."""
-    _run_core_scan(target=target, action="loot", proxy=proxy, tor=tor, evasion_level=evasion_level, verbose=verbose)
-
-
-@cli.command("oast")
-def cmd_oast():
-    """Start the OAST server and wait for interactions."""
-    async def _oast_only():
-        from core.executor import ScanExecutor
-        executor = ScanExecutor(target="oast_monitor")
-        async for msg in executor.run():
-            if msg.get("type") == "oast_hit":
-                console.print(f"  [bold red][OAST HIT][/bold red] {msg.get('protocol')} from {msg.get('remote_addr')}")
-    asyncio.run(_oast_only())
 
 
 def _run_core_scan(
@@ -508,23 +406,18 @@ def _run_core_scan(
         console.print(f"\n  [cyan]Raw JSONL results[/cyan] -> {json_path}")
 
         if action in ("fuzz", "both"):
-            # Always export HTML for human readability
             reporter = Reporter(target=target, job_id=executor.job_id)
             reporter.load_from_parser(parser)
-            html_path = reporter.export_html(out_dir)
-            console.print(f"  [cyan]HTML report[/cyan]       -> {html_path}")
-
-        if fmt == "csv":
-            path = parser.export_csv(out_dir / f"whale_{executor.job_id}.csv")
-            console.print(f"  [cyan]CSV export[/cyan]        -> {path}")
-        elif fmt == "pdf":
-            path = reporter.export_pdf(out_dir)
-            if path:
-                console.print(f"  [cyan]PDF report[/cyan]        -> {path}")
-            else:
-                console.print(
-                    "\n  [red]PDF generation failed (install weasyprint).[/red]"
-                )
+            
+            if fmt == "txt":
+                path = reporter.export_txt(out_dir)
+                console.print(f"  [cyan]Text report[/cyan]       -> {path}")
+            elif fmt == "md":
+                path = reporter.export_md(out_dir)
+                console.print(f"  [cyan]Markdown report[/cyan]   -> {path}")
+            elif fmt == "jsonl":
+                # Already exported above, but we can clarify
+                console.print(f"  [cyan]Report finalized in JSONL format.[/cyan]")
 
 
 @cli.command("report")
@@ -532,7 +425,7 @@ def _run_core_scan(
 @click.option("--target", default="unknown", help="Target URL label for the report.")
 @click.option("--output", "-o", default=None, help="Output directory for the report.")
 @click.option(
-    "--format", "fmt", default="pdf", type=click.Choice(["pdf"]), show_default=True
+    "--format", "fmt", default="md", type=click.Choice(["txt", "md"]), show_default=True
 )
 @click.option(
     "--severity", default=None, help="Filter severities from the JSONL input."
@@ -554,7 +447,11 @@ def cmd_report(
     reporter = Reporter(target=target, job_id=results_file.stem)
     reporter.load_from_parser(parser)
 
-    path = reporter.export_pdf(out_dir)
+    if fmt == "txt":
+        path = reporter.export_txt(out_dir)
+    else:
+        path = reporter.export_md(out_dir)
+
     if path:
         console.print(f"  [bold green]Report saved[/bold green] -> {path}")
     else:

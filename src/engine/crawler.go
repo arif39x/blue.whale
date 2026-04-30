@@ -171,6 +171,16 @@ func (c *crawler) visit(job crawlJob) {
 	// Move logic to StateMachine - pass resp as baseline to avoid double requests
 	c.sm.ProcessNode(job.rawURL, params, tech, resp)
 
+	// Notify Python side about new node for headless discovery
+	ct := resp.Header.Get("Content-Type")
+	isHTML := strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml")
+	if isHTML {
+		emit(struct {
+			Type string `msgpack:"type"`
+			URL  string `msgpack:"url"`
+		}{Type: "node", URL: job.rawURL})
+	}
+
 	// Shadow API Excavator logic
 	uLower := strings.ToLower(u.Path)
 	if strings.Contains(uLower, "/api") || strings.Contains(uLower, "/v") {
@@ -218,8 +228,8 @@ func (c *crawler) visit(job crawlJob) {
 		maxDepth = 3
 	}
 
-	ct := resp.Header.Get("Content-Type")
-	isHTML := strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml")
+	ct = resp.Header.Get("Content-Type")
+	isHTML = strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml")
 
 	if job.depth < maxDepth && isHTML {
 

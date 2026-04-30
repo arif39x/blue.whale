@@ -23,6 +23,7 @@ class Severity(str, Enum):
     INFO = "info"
     UNKNOWN = "unknown"
 
+
 _SEVERITY_RANK: dict[Severity, int] = {
     Severity.CRITICAL: 0,
     Severity.HIGH: 1,
@@ -34,13 +35,12 @@ _SEVERITY_RANK: dict[Severity, int] = {
 
 
 class Finding(BaseModel):
-
     template_id: str = Field(..., alias="template-id")
     name: str
     severity: Severity = Severity.UNKNOWN
-    url: str                        # matched URL / endpoint
-    matched_at: str = ""            # matched sub-path / parameter
-    curl_cmd: str = ""              # reproducible cURL evidence
+    url: str  # matched URL / endpoint
+    matched_at: str = ""  # matched sub-path / parameter
+    curl_cmd: str = ""  # reproducible cURL evidence
     status_code: int | None = Field(default=None, alias="status-code")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     extra: dict = Field(default_factory=dict)
@@ -71,15 +71,16 @@ def _nuclei_line_to_finding(raw: dict) -> Finding | None:
 
     try:
         import shlex
+
         # Build a reproducible curl command as evidence
         method = raw.get("request", {}).get("method", "GET")
         url = raw.get("matched-at") or raw.get("host", "")
         headers = raw.get("request", {}).get("headers", {})
-        
+
         header_flags = []
         for k, v in headers.items():
-            header_flags.append(f'-H {shlex.quote(f"{k}: {v}")}')
-            
+            header_flags.append(f"-H {shlex.quote(f'{k}: {v}')}")
+
         header_str = " ".join(header_flags)
         curl_cmd = f"curl -s -X {shlex.quote(method)} {header_str} {shlex.quote(url)}"
 
@@ -93,10 +94,20 @@ def _nuclei_line_to_finding(raw: dict) -> Finding | None:
                 "matched_at": raw.get("matched-at", ""),
                 "curl_cmd": curl_cmd,
                 "status-code": raw.get("status-code"),
-                "extra": {k: v for k, v in raw.items() if k not in (
-                    "template-id", "info", "matched-at", "host", "status-code",
-                    "request", "response",
-                )},
+                "extra": {
+                    k: v
+                    for k, v in raw.items()
+                    if k
+                    not in (
+                        "template-id",
+                        "info",
+                        "matched-at",
+                        "host",
+                        "status-code",
+                        "request",
+                        "response",
+                    )
+                },
             }
         )
     except Exception as exc:
@@ -106,10 +117,11 @@ def _nuclei_line_to_finding(raw: dict) -> Finding | None:
 
 class ResultParser:
     def __init__(self, severity_filter: list[str] | None = None) -> None:
-        self._severity_filter: set[str] = set(severity_filter or [s.value for s in Severity])
+        self._severity_filter: set[str] = set(
+            severity_filter or [s.value for s in Severity]
+        )
         self._findings: list[Finding] = []
-        self._seen_urls: set[str] = set()   # O(1) de-duplication key space
-
+        self._seen_urls: set[str] = set()  # O(1) de-duplication key space
 
     def ingest(self, line: str) -> Finding | None:
         # Parse one JSON line. Returns a new Finding if valid and not a duplicate,
@@ -134,12 +146,16 @@ class ResultParser:
 
         self._seen_urls.add(dedup_key)
         self._findings.append(finding)
-        logger.info("[Parser] +%s %s -> %s", finding.severity.value.upper(), finding.name, finding.url)
+        logger.info(
+            "[Parser] +%s %s -> %s",
+            finding.severity.value.upper(),
+            finding.name,
+            finding.url,
+        )
         return finding
 
-
     def sorted_findings(self) -> list[Finding]:
-    # Return findings sorted by severity (critical first).
+        # Return findings sorted by severity (critical first).
 
         return sorted(self._findings, key=lambda f: f.rank)
 
@@ -161,11 +177,19 @@ class ResultParser:
         )
 
     def export_csv(self, path: Path) -> Path:
-    # Write all findings as CSV (atomic).
 
         import io
+
         buf = io.StringIO()
-        fields = ["severity", "name", "url", "matched_at", "template_id", "curl_cmd", "timestamp"]
+        fields = [
+            "severity",
+            "name",
+            "url",
+            "matched_at",
+            "template_id",
+            "curl_cmd",
+            "timestamp",
+        ]
         writer = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         for f in self.sorted_findings():
@@ -174,7 +198,6 @@ class ResultParser:
 
     @staticmethod
     def _atomic_write(path: Path, content: str) -> Path:
-        # Write-to-temp-and-rename to prevent partial writes / corruption.
 
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + ".tmp")
@@ -188,7 +211,9 @@ class ResultParser:
         return path
 
     @classmethod
-    def from_file(cls, path: Path, severity_filter: list[str] | None = None) -> "ResultParser":
+    def from_file(
+        cls, path: Path, severity_filter: list[str] | None = None
+    ) -> "ResultParser":
 
         parser = cls(severity_filter=severity_filter)
         with open(path, "rb") as fh:
@@ -202,7 +227,7 @@ class ResultParser:
                 except json.JSONDecodeError:
                     continue
 
-                # Try loading as an already-exported Finding dict (Python keys)
+                # Try loading as an already-exported Finding dict
                 if "template_id" in data and "url" in data:
                     try:
                         # Map python-style keys back to alias-style for Finding

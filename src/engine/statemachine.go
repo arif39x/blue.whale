@@ -30,7 +30,7 @@ type StateMachine struct {
 	headers   map[string]string
 
 	seenSignatures sync.Map
-	endpoints      sync.Map // url -> *Endpoint
+	endpoints      sync.Map
 
 	mu              sync.Mutex
 	payloadRequests map[string]chan []string
@@ -111,10 +111,34 @@ func (sm *StateMachine) generateSignature(rawURL string) string {
 	return sig
 }
 
+func (sm *StateMachine) extractTokens(resp *RawResponse) {
+	if resp == nil {
+		return
+	}
+
+	authHeader := resp.Header.Get("Authorization")
+	if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		sm.mu.Lock()
+		sm.headers["Authorization"] = authHeader
+		sm.mu.Unlock()
+	}
+
+	body := string(resp.Body)
+	csrfPatterns := []string{`csrf-token`, `csrf_token`, `_csrf`, `authenticity_token`}
+	for _, p := range csrfPatterns {
+		re := regexp.MustCompile(fmt.Sprintf(`(?i)%s["']\s*[:=]\s*["']([^"']+)`, p))
+		if matches := re.FindStringSubmatch(body); len(matches) > 1 {
+			sm.mu.Lock()
+			sm.headers["X-CSRF-Token"] = matches[1]
+			sm.mu.Unlock()
+			break
+		}
+	}
+}
+
 func (sm *StateMachine) ProcessNode(rawURL string, params []string, tech []string, baseline *RawResponse) {
 	sig := sm.generateSignature(rawURL)
 
-	// Atomic counter fix
 	val, _ := sm.seenSignatures.LoadOrStore(sig, new(int32))
 	countPtr := val.(*int32)
 	count := atomic.AddInt32(countPtr, 1)
@@ -129,6 +153,8 @@ func (sm *StateMachine) ProcessNode(rawURL string, params []string, tech []strin
 			return
 		}
 	}
+
+	sm.extractTokens(baseline)
 
 	ep := &Endpoint{
 		URL:      rawURL,
@@ -185,15 +211,21 @@ func (sm *StateMachine) isSafeURL(targetURL string) bool {
 		}
 	}
 
-	// Port security
 	port := u.Port()
 	if port != "" {
 		if port == "22" || port == "25" || port == "3306" || port == "5432" || port == "6379" {
-			return false // Block common internal service ports
+			return false
 		}
 	}
 
 	return true
+}
+
+type FeedbackMsg struct {
+	Type       string `msgpack:"type"`
+	URL        string `msgpack:"url"`
+	StatusCode int    `msgpack:"status_code"`
+	Reason     string `msgpack:"reason"`
 }
 
 func (sm *StateMachine) Fuzz(ep *Endpoint) {
@@ -217,7 +249,6 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 		}
 
 		for _, req := range t.Requests {
-			// Template Path Support
 			var targetURLs []string
 			if len(req.Path) > 0 {
 				u, _ := url.Parse(ep.URL)
@@ -242,13 +273,12 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 
 				paramsToFuzz := ep.Params
 				if len(paramsToFuzz) == 0 {
-					paramsToFuzz = []string{"fuzz"} // fallback for path testing
+					paramsToFuzz = []string{"fuzz"}
 				}
 
 				for _, param := range paramsToFuzz {
 					payloads := req.Payloads
 
-					// Add dynamic payloads from Python
 					dynamic := sm.GetDynamicPayloads(param)
 					if len(dynamic) > 0 {
 						payloads = append(payloads, dynamic...)
@@ -275,9 +305,16 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 							continue
 						}
 
-						// Differential Analysis - Stricter rules to reduce noise
+						if resp.StatusCode == 403 || resp.StatusCode == 429 {
+							emit(FeedbackMsg{
+								Type:       "feedback",
+								URL:        targetURL,
+								StatusCode: resp.StatusCode,
+								Reason:     "WAF_BLOCK",
+							})
+						}
+
 						if ep.Baseline != nil && resp.StatusCode != 405 {
-							//Status Code Change (only if it's significant, e.g., 200 -> 500 or 404 -> 200)
 							if resp.StatusCode != ep.Baseline.StatusCode {
 								if (ep.Baseline.StatusCode < 400 && resp.StatusCode >= 500) ||
 									(ep.Baseline.StatusCode >= 400 && resp.StatusCode < 300) {
@@ -285,7 +322,6 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 								}
 							}
 
-							//  Response Size Change (Significant, e.g. > 50% difference AND not a small file)
 							baseLen := float64(len(ep.Baseline.Body))
 							currLen := float64(len(resp.Body))
 							if baseLen > 500 {
@@ -295,8 +331,6 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 								}
 							}
 						}
-
-						// Check matchers (Keyword Matching)
 						body := string(resp.Body)
 						for _, matcher := range req.Matchers {
 							matched := false
@@ -321,7 +355,7 @@ func (sm *StateMachine) Fuzz(ep *Endpoint) {
 }
 
 func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payload, evidence string) {
-	// Honeypot Evasion logic fix
+
 	if strings.Contains(t.ID, "lfi") || strings.Contains(t.ID, "sqli") || strings.Contains(t.ID, "rce") {
 		u, _ := url.Parse(targetURL)
 		q := u.Query()
@@ -331,7 +365,6 @@ func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payloa
 
 		resp, err := sm.client.Do("GET", u.String(), sm.headers, nil)
 		if err == nil {
-			// If WAF blocks both genuine and random payload, don't discard
 			if resp.StatusCode == 403 || resp.StatusCode == 429 {
 				// Potential WAF, keep finding
 			} else if strings.Contains(string(resp.Body), evidence) || (resp.StatusCode == 200 && strings.Contains(evidence, "Status code")) {
@@ -351,7 +384,7 @@ func (sm *StateMachine) ReportVulnerability(t Template, targetURL, param, payloa
 		Evidence: evidence,
 	})
 
-	// Chain Reaction Logic - SSRF fix: Ensure chain probes use SSRF endpoint
+	// Chain Reaction Logic - SSRF Ensure chain probes use SSRF endpoint
 	if strings.Contains(t.ID, "ssrf") {
 		internalPorts := []string{"22", "80", "443", "6379", "8080", "9000"}
 		for _, port := range internalPorts {

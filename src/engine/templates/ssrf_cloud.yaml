@@ -1,0 +1,52 @@
+id: ssrf-cloud-metadata
+name: Cloud Metadata SSRF Probe
+severity: critical
+requests:
+  - method: GET
+    payloads:
+      - "http://169.254.169.254/latest/meta-data/"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "ami-id"
+          - "instance-id"
+          - "local-hostname"
+  - method: GET
+    payloads:
+      - "http://metadata.google.internal/computeMetadata/v1/instance/disks/?recursive=true"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "deviceName"
+          - "index"
+          - "mode"
+  - method: GET
+    payloads:
+      - "http://169.254.169.254/metadata/instance?api-version=2021-02-01"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "compute"
+          - "network"
+          - "storage"
+  - method: GET
+    payloads:
+      - "http://169.254.169.254/v1/instance"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "fly_app_name"
+          - "fly_region"
+  - method: GET
+    payloads:
+      - "http://169.254.169.254/metadata/v1.json"
+    matchers:
+      - type: word
+        part: body
+        words:
+          - "droplet_id"
+          - "vendor_data"

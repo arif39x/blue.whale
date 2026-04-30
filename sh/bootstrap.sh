@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# Usage:
-#   bash sh/bootstrap.sh [--force]
-
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,8 +48,23 @@ else
   ok "whale-engine built -> ${ENGINE_BIN}"
 fi
 
-# Sanity check
 "${ENGINE_BIN}" check && ok "whale-engine self-check passed."
+
+BRAIN_SRC="${PROJECT_ROOT}/src/brain"
+BRAIN_BIN="${BIN_DIR}/whale-brain"
+if [[ "${FORCE}" == "false" && -x "${BRAIN_BIN}" ]]; then
+  ok "whale-brain already built - skipping."
+else
+  if command -v cargo &>/dev/null; then
+    log "Building whale-brain (Rust)..."
+    (cd "${BRAIN_SRC}" && cargo build --release)
+    cp "${BRAIN_SRC}/target/release/whale-brain" "${BRAIN_BIN}"
+    chmod +x "${BRAIN_BIN}"
+    ok "whale-brain built -> ${BRAIN_BIN}"
+  else
+    warn "Rust/Cargo not found. Skipping whale-brain build. LLM features will be disabled."
+  fi
+fi
 
 VENV_DIR="${PROJECT_ROOT}/.venv"
 if [[ ! -d "${VENV_DIR}" ]]; then
@@ -73,7 +85,6 @@ if command -v jq &>/dev/null; then
 else
   warn "jq not found - useful for debugging JSON output. Install: sudo apt install jq"
 fi
-
 
 mkdir -p "${PROJECT_ROOT}/data/tmp" \
          "${PROJECT_ROOT}/data/archives" \

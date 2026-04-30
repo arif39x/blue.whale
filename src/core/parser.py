@@ -5,15 +5,32 @@ import json
 import logging
 import mmap
 import os
+import hashlib
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Iterable, Iterator
 
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
+
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 logger = logging.getLogger(__name__)
 
+def hash_dom(html_content: str) -> str:
+    if not html_content or not BeautifulSoup:
+        return ""
+    try:
+        soup = BeautifulSoup(html_content, "html.parser")
+        for element in soup(["script", "style", "meta", "link", "input", "time"]):
+            element.extract()
+        structure = "".join([tag.name for tag in soup.find_all(True) if tag.name])
+        return hashlib.sha256(structure.encode()).hexdigest()
+    except Exception:
+        return ""
 
 class Severity(str, Enum):
     CRITICAL = "critical"
@@ -22,7 +39,6 @@ class Severity(str, Enum):
     LOW = "low"
     INFO = "info"
     UNKNOWN = "unknown"
-
 
 _SEVERITY_RANK: dict[Severity, int] = {
     Severity.CRITICAL: 0,
@@ -33,14 +49,13 @@ _SEVERITY_RANK: dict[Severity, int] = {
     Severity.UNKNOWN: 5,
 }
 
-
 class Finding(BaseModel):
     template_id: str = Field(..., alias="template-id")
     name: str
     severity: Severity = Severity.UNKNOWN
-    url: str  # matched URL / endpoint
-    matched_at: str = ""  # matched sub-path / parameter
-    curl_cmd: str = ""  # reproducible cURL evidence
+    url: str
+    matched_at: str = ""
+    curl_cmd: str = ""
     status_code: int | None = Field(default=None, alias="status-code")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     extra: dict = Field(default_factory=dict)
@@ -65,14 +80,11 @@ class Finding(BaseModel):
         d["timestamp"] = self.timestamp.isoformat()
         return d
 
-
 def _nuclei_line_to_finding(raw: dict) -> Finding | None:
-    # Map a raw Nuclei JSON dict to a Finding model.
 
     try:
         import shlex
 
-        # Build a reproducible curl command as evidence
         method = raw.get("request", {}).get("method", "GET")
         url = raw.get("matched-at") or raw.get("host", "")
         headers = raw.get("request", {}).get("headers", {})
@@ -114,18 +126,15 @@ def _nuclei_line_to_finding(raw: dict) -> Finding | None:
         logger.debug("Could not parse finding: %s - %s", raw, exc)
         return None
 
-
 class ResultParser:
     def __init__(self, severity_filter: list[str] | None = None) -> None:
         self._severity_filter: set[str] = set(
             severity_filter or [s.value for s in Severity]
         )
         self._findings: list[Finding] = []
-        self._seen_urls: set[str] = set()  # O(1) de-duplication key space
+        self._seen_urls: set[str] = set()
 
     def ingest(self, line: str) -> Finding | None:
-        # Parse one JSON line. Returns a new Finding if valid and not a duplicate,
-        # else None.
 
         try:
             raw = json.loads(line)
@@ -155,7 +164,6 @@ class ResultParser:
         return finding
 
     def sorted_findings(self) -> list[Finding]:
-        # Return findings sorted by severity (critical first).
 
         return sorted(self._findings, key=lambda f: f.rank)
 
@@ -227,10 +235,9 @@ class ResultParser:
                 except json.JSONDecodeError:
                     continue
 
-                # Try loading as an already-exported Finding dict
                 if "template_id" in data and "url" in data:
                     try:
-                        # Map python-style keys back to alias-style for Finding
+
                         finding = Finding(
                             **{
                                 "template-id": data.get("template_id", "unknown"),

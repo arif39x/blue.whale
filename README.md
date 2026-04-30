@@ -2,7 +2,7 @@
 
 ![Blue Whale Logo](assets/Logo.png)
 
-**BlueWhale** is an advanced, high-fidelity vulnerability orchestration platform engineered for offensive-defensive auditing. It employs a **Kinetic-Cognitive** dual-core model, synchronizing a high-performance Go network engine with a Python-based Small Language Model (SLM) for semantic intent analysis and polymorphic execution.
+**BlueWhale** is an advanced, high-fidelity vulnerability orchestration platform engineered for offensive-defensive auditing. It employs a **Kinetic-Cognitive-Orchestral** triple-core model, synchronizing a high-performance Go network engine with a Rust-based LLM orchestrator and a Python-based SLM for semantic intent analysis and polymorphic execution.
 
 ---
 
@@ -13,12 +13,19 @@
 
 ## High-Fidelity Features
 
-- **Kinetic-Cognitive Orchestration:** Asynchronous IPC between the Python "Brain" and Go "Executor" for real-time intent serialization and defensive neutralization.
+- **Kinetic-Cognitive-Orchestral Model:** 
+  - **Kinetic Core (Go):** High-speed network engine with custom TCP/TLS stacks.
+  - **Orchestral Layer (Rust):** High-performance multi-model LLM management for parallel mutation and analysis.
+  - **Cognitive Core (Python):** Small Language Model (SLM) for intent analysis and complex logic testing.
 - **Defensive Neutralization Matrix:**
-  - **Gaussian Jitter:** Statistical pacing using $T_{request} = \mu + \sigma \cdot N(0, 1)$ to evade anycast-based anomaly detection.
-  - **TLS Fingerprinting:** Dynamic JA3/JA4 spoofing to mimic legitimate browser stacks (Chrome, Firefox, Safari).
-  - **Semantic Mutator:** SLM-driven polymorphic mutation for WAF rule evasion (e.g., `HAVING` clause injection, Unicode obfuscation).
-- **Identity Neutralization:** Deep-logic testing for JWT algorithm confusion, none-alg injection, and OAuth2 resilience.
+  - **Adaptive Pacing (PID Controller):** Network-aware rate limiting that dynamically adjusts RPS based on target latency (TTFB) to evade detection.
+  - **Adversarial Noise Injection:** Randomly interspersed non-malicious requests (Favicon, CSS, JS) to flatten WAF anomaly scores.
+  - **TLS Fingerprinting:** Dynamic JA3/JA4 spoofing using `uTLS` to mimic legitimate browser stacks (Chrome, Firefox, Safari).
+- **Semantic Verification (Anti-False Positive):**
+  - **DOM-Tree Hashing:** Eliminates false positives by comparing SHA-256 hashes of structural nodes, ignoring dynamic content.
+  - **SLM Verification Gate:** Automated AI-driven "Proof of Concept" (PoC) verification for all discovered vulnerabilities.
+- **"Ghost" Session Orchestration:** 
+  - **Multi-Identity Testing:** Concurrent scanning using a `SessionMap` to automatically test for IDOR and BFLA by swapping headers (Admin, User, Guest) on the fly.
 - **Recursive Headless Discovery:** Playwright-integrated SPA crawling to identify hidden API endpoints and DOM-based XSS.
 - **Out-of-Band (OAST) Correlation:** Integrated DNS/HTTP trigger correlation for blind SSRF and SQLi detection.
 
@@ -30,6 +37,8 @@
 
 - **Python 3.11+**
 - **Go 1.26.2+**
+- **Rust (Cargo) 1.75+**
+- **Ollama** (Local LLM Server)
 
 ### Steps
 
@@ -45,7 +54,7 @@
    playwright install chromium
    ```
 
-3. **Build Kinetic Core:**
+3. **Bootstrap Triple-Core:**
    ```bash
    python3 main.py bootstrap --force
    ```
@@ -63,13 +72,13 @@ python3 main.py whalerun http://example.com
 ```
 
 ### 2. Stealth & Anonymity
-Activate Gaussian jitter, TLS fingerprinting, and Tor routing:
+Activate Adaptive Pacing, Noise Injection, and Tor routing:
 ```bash
 python3 main.py whalerun http://example.com --stealth --tor
 ```
 
 ### 3. Authentication & Identity Testing
-Enable deep-logic testing for JWTs and authentication resilience:
+Enable deep-logic testing for JWTs and multi-role authorization resilience:
 ```bash
 python3 main.py whalerun http://example.com --brute-auth
 ```
@@ -86,17 +95,17 @@ python3 main.py whalerun http://example.com --loot
 
 | Flag | Feature | Impact |
 | :--- | :--- | :--- |
-| `--stealth` | Defensive Neutralization | Activates Gaussian Jitter and JA3 Fingerprinting. |
-| `--brute-auth`| Identity Neutralization | Executes JWT algorithm confusion and None-Alg testing. |
+| `--stealth` | Defensive Neutralization | Activates PID Ratelimiting, Noise Injection, and TLS Spoofing. |
+| `--brute-auth`| Identity Neutralization | Executes JWT confusion and Multi-Role SessionMap testing. |
 | `--loot` | SPA API Discovery | Spawns headless workers for DOM execution and storage looting. |
 | `--tor` | Network Anonymity | Routes all traffic through SOCKS5 127.0.0.1:9050. |
 | `--action` | Scope Control | `crawl` (discovery), `fuzz` (vulnerability), or `both`. |
 | `-H, --header`| Custom Injection | Pass custom headers for authenticated sessions. |
 
 ### System Management
-- `python3 main.py info`: Display hybrid-core architecture status.
-- `python3 main.py bootstrap`: Recompile the Kinetic Core binary.
-- `python3 main.py report <file>`: Generate a technical PDF/HTML report.
+- `python3 main.py info`: Display triple-core architecture status.
+- `python3 main.py bootstrap`: Recompile Kinetic (Go) and Orchestral (Rust) binaries.
+- `python3 main.py report <file>`: Generate a technical Markdown/JSONL report.
 
 ---
 

@@ -65,6 +65,18 @@ logging:
   level: "INFO"
   file: "data/tmp/whale.log"
 
+llm:
+  enabled: true
+  ollama_url: "http://localhost:11434"
+  models:
+    - "mannix/llama3.1-8b-abliterated:latest"
+    - "huihui_ai/qwen2.5-abliterate:7b-instruct"
+    - "dolphin3:latest"
+  preferred_model: "mannix/llama3.1-8b-abliterated:latest"
+  rust_layer:
+    enabled: true
+    socket_path: "data/tmp/brain.sock"
+
 profiles:
   full:
     severity_filter: ["critical", "high", "medium", "low", "info"]

@@ -142,7 +142,7 @@ func ApplyStealthTLS(uconn *utls.UConn) error {
 	if err := uconn.BuildHandshakeState(); err != nil {
 		return err
 	}
-	// Force H1.1 and randomize some extensions to break statistical pinning
+
 	for _, ext := range uconn.Extensions {
 		if alpn, ok := ext.(*utls.ALPNExtension); ok {
 			alpn.AlpnProtocols = []string{"http/1.1"}

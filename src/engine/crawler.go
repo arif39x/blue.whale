@@ -101,9 +101,9 @@ func (c *crawler) run(seeds []string) {
 		go func() {
 			defer workerWg.Done()
 			for job := range c.queue {
-				// Initial seed fetch safety: limit rate for depth 0
+
 				if job.depth == 0 {
-					time.Sleep(100 * time.Millisecond) // Reduced wait for seeds but kept some throttle
+					time.Sleep(100 * time.Millisecond)
 				} else if rateTicker != nil {
 					<-rateTicker
 				}
@@ -165,13 +165,10 @@ func (c *crawler) visit(job crawlJob) {
 		params = append(params, k)
 	}
 
-	// Fingerprint tech stack
 	tech := Fingerprint(resp.Header, string(resp.Body))
 
-	// Move logic to StateMachine - pass resp as baseline to avoid double requests
 	c.sm.ProcessNode(job.rawURL, params, tech, resp)
 
-	// Notify Python side about new node for headless discovery
 	ct := resp.Header.Get("Content-Type")
 	isHTML := strings.Contains(ct, "text/html") || strings.Contains(ct, "application/xhtml")
 	if isHTML {
@@ -181,7 +178,6 @@ func (c *crawler) visit(job crawlJob) {
 		}{Type: "node", URL: job.rawURL})
 	}
 
-	// Shadow API Excavator logic
 	uLower := strings.ToLower(u.Path)
 	if strings.Contains(uLower, "/api") || strings.Contains(uLower, "/v") {
 		docs := []string{"/swagger-ui.html", "/v2/api-docs", "/v3/api-docs", "/openapi.json", "/swagger.json"}
@@ -207,7 +203,6 @@ func (c *crawler) visit(job crawlJob) {
 		}
 	}
 
-	// Emit periodic progress
 	crawled := c.crawled.Load()
 	total := c.total.Load()
 	if crawled%5 == 0 || crawled == total {

@@ -331,6 +331,11 @@ class ScanExecutor:
         try:
             while not self._cancelled:
                 msg = await self._results_queue.get()
+                if not isinstance(msg, dict):
+                    logger.warning(f"Unexpected message type in results queue: {type(msg)}")
+                    self._results_queue.task_done()
+                    continue
+
                 msg_type = msg.get("type", "")
 
                 if msg_type == "scan_done":

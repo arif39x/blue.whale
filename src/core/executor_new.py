@@ -1,6 +1,4 @@
 class ScanExecutor:
-    """Main orchestrator for hybrid Go/Python security scanning."""
-
     def __init__(
         self,
         target: str,
@@ -158,7 +156,7 @@ class ScanExecutor:
                         brain = BrainBridge(
                             ollama_url=llm_cfg.get("ollama_url"),
                             model=llm_cfg.get("preferred_model"),
-                            socket_path=TMP_DIR / "brain.sock"
+                            socket_path=TMP_DIR / "brain.sock",
                         )
                         await brain._spawn()
                     except Exception as e:
@@ -204,9 +202,10 @@ class ScanExecutor:
                             high_priority.extend(self._jwt_tester.test_token(token))
 
                         for cat in ["sqli", "xss", "ssti", "ssrf", "xxe"]:
-
                             if brain:
-                                seeds = self._mutator.corpus_mutations(cat, max_transforms=1)
+                                seeds = self._mutator.corpus_mutations(
+                                    cat, max_transforms=1
+                                )
                                 try:
                                     seed = next(seeds)["payload"]
                                     mutations = await brain.mutate(seed, cat, p)

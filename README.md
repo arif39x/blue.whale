@@ -2,110 +2,118 @@
 
 ![Blue Whale Logo](assets/Logo.png)
 
-**BlueWhale** is an advanced, high-fidelity vulnerability orchestration platform engineered for offensive-defensive auditing. It employs a **Kinetic-Cognitive-Orchestral** triple-core model, synchronizing a high-performance Go network engine with a Rust-based LLM orchestrator and a Python-based SLM for semantic intent analysis and polymorphic execution.
+**BlueWhale** is a high-fidelity vulnerability orchestration platform engineered for advanced offensive-defensive auditing. It is designed around a **deterministic execution core**, an **optional intelligence layer**, and a **unified evidence pipeline**.
 
 ---
 
 ## Core Philosophy
-> "Security is a temporary state of resistance. Nothing is absolute. There must be a vulnerability; BlueWhale will find it."
+
+1. **Deterministic First**: All vulnerability detection is grounded in reproducible, evidence-based logic. No model is required to validate findings.
+2. **Model as Augmentation**: LLMs assist in classification, triage, and summarization but never act as the primary source of truth.
+3. **Evidence-Centric**: Every action produces artifacts (HTTP responses, DOM snapshots, storage dumps) that form the authoritative dataset.
+4. **Modular Execution**: Each capability is an independent command, suitable for CI/CD or targeted manual audits.
 
 ---
 
-## High-Fidelity Features
+## Architecture: The Triple-Core Model
 
-- **Kinetic-Cognitive-Orchestral Model:** 
-  - **Kinetic Core (Go):** High-speed network engine with custom TCP/TLS stacks.
-  - **Orchestral Layer (Rust):** High-performance multi-model LLM management for parallel mutation and analysis.
-  - **Cognitive Core (Python):** Small Language Model (SLM) for intent analysis and complex logic testing.
-- **Defensive Neutralization Matrix:**
-  - **Adaptive Pacing (PID Controller):** Network-aware rate limiting that dynamically adjusts RPS based on target latency (TTFB) to evade detection.
-  - **Adversarial Noise Injection:** Randomly interspersed non-malicious requests (Favicon, CSS, JS) to flatten WAF anomaly scores.
-  - **TLS Fingerprinting:** Dynamic JA3/JA4 spoofing using `uTLS` to mimic legitimate browser stacks (Chrome, Firefox, Safari).
-- **Semantic Verification (Anti-False Positive):**
-  - **DOM-Tree Hashing:** Eliminates false positives by comparing SHA-256 hashes of structural nodes, ignoring dynamic content.
-  - **SLM Verification Gate:** Automated AI-driven "Proof of Concept" (PoC) verification for all discovered vulnerabilities.
-- **"Ghost" Session Orchestration:** 
-  - **Multi-Identity Testing:** Concurrent scanning using a `SessionMap` to automatically test for IDOR and BFLA by swapping headers (Admin, User, Guest) on the fly.
-- **Recursive Headless Discovery:** Playwright-integrated SPA crawling to identify hidden API endpoints and DOM-based XSS.
-- **Out-of-Band (OAST) Correlation:** Integrated DNS/HTTP trigger correlation for blind SSRF and SQLi detection.
+- **Kinetic Core (Go)**: High-performance network engine with custom TCP/TLS stacks and PID-controlled rate limiting.
+- **Orchestral Layer (Rust)**: High-speed LLM management for parallel mutation and analysis.
+- **Cognitive Core (Python)**: Orchestration plane that manages the lifecycle, evidence pipeline, and deterministic rules.
 
 ---
 
 ## Setup & Installation
 
 ### Requirements
-
 - **Python 3.11+**
 - **Go 1.26.2+**
 - **Rust (Cargo) 1.75+**
-- **Ollama** (Local LLM Server)
+- **Ollama** (Optional for AI features)
 
 ### Steps
-
-1. **Initialize Environment:**
+1. **Initialize Environment**:
    ```bash
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
    ```
-
-2. **Setup Headless Engine:**
+2. **Setup Browser Engine**:
    ```bash
    playwright install chromium
    ```
-
-3. **Bootstrap Triple-Core:**
+3. **Bootstrap Binaries**:
    ```bash
    python3 main.py bootstrap --force
    ```
 
 ---
 
-## How to Use: The `whalerun` Directive
+## The `whalerun` Directive: Command Reference
 
-The `whalerun` command is the primary entry point for high-fidelity auditing.
+BlueWhale uses a modular command structure. Each command can be run independently.
 
-### 1. Basic Audit
-Standard scan including recursive crawling and multi-vector fuzzing:
+### 1. Initialization
+Prepare the workspace and configuration.
 ```bash
-python3 main.py whalerun http://example.com
+python3 main.py init
 ```
 
-### 2. Stealth & Anonymity
-Activate Adaptive Pacing, Noise Injection, and Tor routing:
+### 2. Scanning (Deterministic)
+Perform endpoint probing and browser-based rule detection.
 ```bash
-python3 main.py whalerun http://example.com --stealth --tor
+python3 main.py scan --target http://example.com
 ```
 
-### 3. Authentication & Identity Testing
-Enable deep-logic testing for JWTs and multi-role authorization resilience:
+### 3. Crawling & Discovery
+SPA navigation and hidden route discovery.
 ```bash
-python3 main.py whalerun http://example.com --brute-auth
+python3 main.py crawl --target http://example.com --depth 3
 ```
 
-### 4. Headless SPA Discovery (Looting)
-Extract client-side storage, cookies, and identify hidden API endpoints:
+### 4. Authentication Testing
+Multi-role session validation and authorization boundary testing.
 ```bash
-python3 main.py whalerun http://example.com --loot
+python3 main.py auth --target http://example.com --roles admin,user
+```
+
+### 5. Looting
+Extract localStorage, IndexedDB, and hidden API endpoints.
+```bash
+python3 main.py loot --target http://example.com
+```
+
+### 6. AI-Assisted Analysis
+Triage findings using the optional Intelligence Plane.
+```bash
+python3 main.py analyze --model ollama
+# Or disable AI completely
+python3 main.py analyze --no-llm
+```
+
+### 7. Reporting
+Generate technical reports from the evidence plane.
+```bash
+python3 main.py report --format json --output results/
 ```
 
 ---
 
-## Command Reference
+## Global Flags
 
-| Flag | Feature | Impact |
-| :--- | :--- | :--- |
-| `--stealth` | Defensive Neutralization | Activates PID Ratelimiting, Noise Injection, and TLS Spoofing. |
-| `--brute-auth`| Identity Neutralization | Executes JWT confusion and Multi-Role SessionMap testing. |
-| `--loot` | SPA API Discovery | Spawns headless workers for DOM execution and storage looting. |
-| `--tor` | Network Anonymity | Routes all traffic through SOCKS5 127.0.0.1:9050. |
-| `--action` | Scope Control | `crawl` (discovery), `fuzz` (vulnerability), or `both`. |
-| `-H, --header`| Custom Injection | Pass custom headers for authenticated sessions. |
+| Flag | Description |
+| :--- | :--- |
+| `--target, -t` | Target URL for the operation. |
+| `--config, -c` | Path to a custom `settings.yaml`. |
+| `--no-llm` | Force disable all AI-augmented features. |
+| `--force` | (Bootstrap) Recompile all core binaries. |
 
-### System Management
-- `python3 main.py info`: Display triple-core architecture status.
-- `python3 main.py bootstrap`: Recompile Kinetic (Go) and Orchestral (Rust) binaries.
-- `python3 main.py report <file>`: Generate a technical Markdown/JSONL report.
+---
+
+## Evidence Model
+All findings map to stored artifacts in `data/evidence/`:
+- **Artifacts**: Raw HTTP data, DOM snapshots, Screenshots.
+- **Findings**: Verified vulnerabilities linked to specific artifacts.
 
 ---
 

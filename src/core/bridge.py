@@ -127,7 +127,7 @@ class EngineBridge:
                 raise EngineError("Engine connection lost")
 
     async def stream(self) -> AsyncIterator[dict]:
-        unpacker = msgpack.Unpacker(raw=False)
+        unpacker = msgpack.Unpacker(raw=False, unicode_errors="replace")
 
         while True:
             if not self._connected.is_set() or self._reader is None:
@@ -148,7 +148,12 @@ class EngineBridge:
 
                 unpacker.feed(chunk)
                 for msg in unpacker:
-                    yield msg
+                    if isinstance(msg, list):
+                        for m in msg:
+                            if isinstance(m, dict):
+                                yield m
+                    elif isinstance(msg, dict):
+                        yield msg
             except (asyncio.IncompleteReadError, ConnectionResetError):
                 await self._wait_for_exit_and_restart()
                 if self._restarts > _MAX_RESTARTS:
@@ -315,17 +320,23 @@ class BrainBridge:
             self._writer.write(packed)
             await self._writer.drain()
 
-            unpacker = msgpack.Unpacker(raw=False)
+            unpacker = msgpack.Unpacker(raw=False, unicode_errors="replace")
             while True:
                 chunk = await self._reader.read(8192)
                 if not chunk:
                     break
                 unpacker.feed(chunk)
                 for resp in unpacker:
-                    if resp.get("type") == "mutation_results":
-                        return resp.get("results", [])
-                    return []
-        return []
+                    if isinstance(resp, dict):
+                        if resp.get("type") == "mutation_results":
+                            return resp.get("results", [])
+                        return []
+                    elif isinstance(resp, list):
+                        for r in resp:
+                            if isinstance(r, dict) and r.get("type") == "mutation_results":
+                                return r.get("results", [])
+                        return []
+            return []
 
     async def analyze(self, evidence: str, category: str) -> str:
         if not self._writer:
@@ -342,18 +353,23 @@ class BrainBridge:
             self._writer.write(packed)
             await self._writer.drain()
 
-            unpacker = msgpack.Unpacker(raw=False)
+            unpacker = msgpack.Unpacker(raw=False, unicode_errors="replace")
             while True:
                 chunk = await self._reader.read(8192)
                 if not chunk:
                     break
                 unpacker.feed(chunk)
                 for resp in unpacker:
-                    if resp.get("type") == "analysis_results":
-                        return resp.get("analysis", "No analysis provided")
-                    return "Unexpected response type"
-        return "No response from brain"
-
+                    if isinstance(resp, dict):
+                        if resp.get("type") == "analysis_results":
+                            return resp.get("analysis", "No analysis provided")
+                        return "Unexpected response type"
+                    elif isinstance(resp, list):
+                        for r in resp:
+                            if isinstance(r, dict) and r.get("type") == "analysis_results":
+                                return r.get("analysis", "No analysis provided")
+                        return "Unexpected response type"
+            return "No response from brain"
     async def close(self) -> None:
         if self._writer:
             self._writer.close()
